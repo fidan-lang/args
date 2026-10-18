@@ -1,0 +1,40 @@
+use "../src/init.fdn" as args
+
+var spec = {
+    "name": {"kind": "value", "short": "n", "default": "Dal"},
+    "verbose": {"kind": "flag", "short": "v"},
+    "count": {"kind": "value", "short": "c", "required": true},
+}
+var parsed = args.parse(["-vv", "--name=你好", "-c3", "one", "--", "--child", "-x"], spec)
+
+assert_eq(parsed["error"], "")
+assert_eq(parsed["values"]["name"], "你好")
+assert_eq(parsed["values"]["verbose"], true)
+assert_eq(parsed["values"]["count"], "3")
+assert_eq(parsed["positionals"], ["one", "--child", "-x"])
+assert_eq(parsed["passthrough"], ["--child", "-x"])
+assert_eq(args.parse(["--help"], spec)["error"], "")
+assert_eq(args.parse(["--version"], spec)["values"]["version"], true)
+assert_eq(args.parse([], spec)["error"], "Missing required option: --count")
+assert_eq(args.parse(["-c"], spec)["error"], "Missing value for --count")
+assert_eq(args.parse(["--count", "--"], spec)["error"], "Missing value for --count")
+assert_eq(args.parse(["--unknown"], spec)["error"], "Unknown option: --unknown")
+assert_eq(args.parse(["-z"], spec)["error"], "Unknown option: -z")
+assert_eq(args.parse(["--verbose=yes"], spec)["error"], "Flag takes no value: --verbose")
+assert_eq(args.parse(["--count=-3", "--name", "", "--name=last"], spec)["values"]["name"], "last")
+assert_eq(args.parse(["-c=-3", "-", "-2.5"], spec)["positionals"], ["-", "-2.5"])
+assert_eq(args.parse(["--count", "1"], spec)["values"]["name"], "Dal")
+assert_eq(args.integer_value("12", "count")["value"], 12)
+assert_eq(args.integer_value("nope", "count")["error"], "Expected integer for --count")
+assert_eq(args.float_value("1.5", "count")["value"], 1.5)
+assert_eq(args.float_value("nope", "count")["error"], "Expected float for --count")
+assert_eq(args.help("demo", "0.1.0", "Demo", spec).contains("--count, -c VALUE (required)"), true)
+print("args parser checks passed")
+
+# Optional spec fields may be absent; native conditions must inspect Boolean values.
+var minimal = args
+    .parse(["--name", "Dal", "--verbose"], {"name": {"kind": "value"}, "verbose": {"kind": "flag"}})
+
+assert_eq(minimal["error"], "")
+assert_eq(minimal["values"]["name"], "Dal")
+assert_eq(minimal["values"]["verbose"], true)

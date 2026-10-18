@@ -1,0 +1,261 @@
+# args 0.1.0: pure parsing, no process or environment side effects.
+@precompile
+action result with (
+    values oftype dynamic,
+    positionals oftype dynamic,
+    passthrough oftype dynamic,
+    error oftype dynamic,
+) returns dynamic {
+    return {
+        "values": values,
+        "positionals": positionals,
+        "passthrough": passthrough,
+        "error": error,
+    }
+}
+
+action parse with (certain argv oftype list oftype string, certain specification oftype dynamic) returns dynamic {
+    var values oftype dynamic = {"help": false, "version": false}
+    var positionals oftype list oftype string = []
+    var passthrough oftype list oftype string = []
+    var aliases oftype dynamic = {"h": "help", "V": "version"}
+    var kinds oftype dynamic = {"help": "flag", "version": "flag"}
+    var required oftype list oftype string = []
+    var provided oftype list oftype string = []
+
+    for name in specification.keys() {
+        if name == "help" or name == "version" or name == "" or name.contains("=") or name.startsWith(
+            "-",
+        ) {
+            return result(
+                    values,
+                    positionals,
+                    passthrough,
+                    "Invalid or reserved option name: " + name,
+                )
+        }
+
+        var entry oftype dynamic = specification[name]
+        var kind oftype string = entry["kind"]
+
+        if kind != "flag" and kind != "value" {
+            return result(
+                    values,
+                    positionals,
+                    passthrough,
+                    "Expected flag or value kind for --" + name,
+                )
+        }
+
+        kinds[name] = kind
+        values[name] = false if kind == "flag" else nothing
+
+        if entry.containsKey("default") {
+            values[name] = entry["default"]
+        }
+        if entry.containsKey("required") {
+            if entry["required"] {
+                required.append(name)
+            }
+        }
+        if entry.containsKey("short") {
+            var short oftype string = entry["short"]
+
+            if len(short) != 1 or aliases.containsKey(short) or short == "-" or short == "=" or "0123456789".contains(
+                short,
+            ) {
+                return result(
+                        values,
+                        positionals,
+                        passthrough,
+                        "Invalid or duplicate short option: " + short,
+                    )
+            }
+
+            aliases[short] = name
+        }
+    }
+
+    var i = 0
+
+    while i < len(argv) {
+        var token = argv[i]
+
+        if token == "--" {
+            i = i + 1
+
+            while i < len(argv) {
+                passthrough.append(argv[i])
+                positionals.append(argv[i])
+                i = i + 1
+            }
+
+            break
+        }
+        if token.startsWith("--") {
+            var equal = token.indexOf("=")
+            var name = token[2:] if equal == -1 else token[2:equal]
+
+            if not kinds.containsKey(name) {
+                return result(values, positionals, passthrough, "Unknown option: --" + name)
+            }
+            if kinds[name] == "flag" {
+                if equal != -1 {
+                    return result(values, positionals, passthrough, "Flag takes no value: --" + name)
+                }
+
+                values[name] = true
+            } else {
+                if equal != -1 {
+                    values[name] = token[equal + 1:]
+                } else {
+                    if i + 1 >= len(argv) {
+                        return result(
+                                values,
+                                positionals,
+                                passthrough,
+                                "Missing value for --" + name,
+                            )
+                    }
+                    if argv[i + 1] == "--" {
+                        return result(
+                                values,
+                                positionals,
+                                passthrough,
+                                "Missing value for --" + name,
+                            )
+                    }
+
+                    i = i + 1
+                    values[name] = argv[i]
+                }
+            }
+
+            provided.append(name)
+        } else {
+            if token.startsWith("-") and len(token) > 1 and not "0123456789".contains(token[1:2]) {
+                var j = 1
+
+                while j < len(token) {
+                    var short = token[j]
+
+                    if not aliases.containsKey(short) {
+                        return result(values, positionals, passthrough, "Unknown option: -" + short)
+                    }
+
+                    var name oftype string = aliases[short]
+
+                    if kinds[name] == "flag" {
+                        values[name] = true
+                    } else {
+                        if j + 1 < len(token) {
+                            var attached = token[j + 1:]
+
+                            values[name] = attached[1:] if attached.startsWith("=") else attached
+                        } else {
+                            if i + 1 >= len(argv) {
+                                return result(
+                                        values,
+                                        positionals,
+                                        passthrough,
+                                        "Missing value for --" + name,
+                                    )
+                            }
+                            if argv[i + 1] == "--" {
+                                return result(
+                                        values,
+                                        positionals,
+                                        passthrough,
+                                        "Missing value for --" + name,
+                                    )
+                            }
+
+                            i = i + 1
+                            values[name] = argv[i]
+                        }
+
+                        j = len(token)
+                    }
+
+                    provided.append(name)
+                    j = j + 1
+                }
+            } else {
+                positionals.append(token)
+            }
+        }
+
+        i = i + 1
+    }
+    if not values["help"] and not values["version"] {
+        for name in required {
+            if not provided.contains(name) {
+                if kinds[name] == "flag" or values[name] == nothing {
+                    return result(
+                            values,
+                            positionals,
+                            passthrough,
+                            "Missing required option: --" + name,
+                        )
+                }
+            }
+        }
+    }
+
+    return result(values, positionals, passthrough, "")
+}
+
+action integer_value with (certain value oftype dynamic, certain name oftype string) returns dynamic {
+    attempt {
+        return {"value": integer(value), "error": ""}
+    } catch error {
+        return {"value": nothing, "error": "Expected integer for --" + name}
+    }
+}
+
+action float_value with (certain value oftype dynamic, certain name oftype string) returns dynamic {
+    attempt {
+        return {"value": float(value), "error": ""}
+    } catch error {
+        return {"value": nothing, "error": "Expected float for --" + name}
+    }
+}
+
+action help with (
+    certain program oftype string,
+    certain version oftype string,
+    certain description oftype string,
+    certain specification oftype dynamic,
+) returns string {
+    var text = program + " " + version + "\n" + description + "
+
+Options:
+  -h, --help    Show help
+  -V, --version Show version
+"
+
+    for name in specification.keys() {
+        var entry oftype dynamic = specification[name]
+
+        text = text + "  --" + name
+
+        if entry.containsKey("short") {
+            text = text + ", -" + entry["short"]
+        }
+        if entry["kind"] == "value" {
+            text = text + " VALUE"
+        }
+        if entry.containsKey("required") {
+            if entry["required"] {
+                text = text + " (required)"
+            }
+        }
+        if entry.containsKey("default") {
+            text = text + " [default: " + string(entry["default"]) + "]"
+        }
+
+        text = text + "\n"
+    }
+
+    return text
+}

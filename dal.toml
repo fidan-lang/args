@@ -1,0 +1,8 @@
+[package]
+name = "args"
+version = "0.1.0"
+fidan = ">=1.0.16, <2.0.0"
+description = "A small argument parser for Fidan command-line programs"
+license = "LicenseRef-Fidan"
+readme = "README.md"
+include = ["src/**", "tests/**", "examples/**", "README.md", "LICENSE", "CHANGELOG.md"]
