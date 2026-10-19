@@ -56,6 +56,23 @@ for (const backend of ["cranelift", ...(useLlvm ? ["llvm"] : [])]) {
     output,
   ]);
   assert(run(output, []).includes("args parser checks passed"));
+  const greet = path.join(
+    root,
+    "target",
+    `greet-${backend}${process.platform === "win32" ? ".exe" : ""}`,
+  );
+  run(binary, [
+    "build",
+    "--backend",
+    backend,
+    ...(backend === "llvm" ? ["--lto", "full"] : []),
+    "examples/greet.fdn",
+    "-o",
+    greet,
+  ]);
+  assert.equal(run(greet, ["--name", "Dal"]).trim(), "Hello, Dal!");
+  assert(run(greet, ["--help"]).includes("Usage: greet"));
+  assert.equal(run(greet, ["--version"]).trim(), "0.1.0");
 }
 for (const separator of [[], ["--"]])
   assert.equal(

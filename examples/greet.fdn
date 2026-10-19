@@ -1,22 +1,12 @@
-use "../src/init.fdn" as args
-use std.env
+use "../src/init.fdn"
 
-var spec = {
-    "name": {"kind": "value", "short": "n", "default": "Dal"},
-    "verbose": {"kind": "flag", "short": "v"},
-}
-var parsed = args.parse(env.args(), spec)
-
-if parsed["error"] != "" {
-    eprint(parsed["error"])
-} else {
-    if parsed["values"]["help"] {
-        print(args.help("greet", "0.1.0", "Greet a person", spec))
-    } else {
-        if parsed["values"]["version"] {
-            print("0.1.0")
-        } else {
-            print("Hello, " + parsed["values"]["name"] + "!")
-        }
+@command
+action greet with (optional name oftype string = "Dal", optional verbose oftype boolean = false) {
+    if verbose {
+        print("Greeting " + name)
     }
+
+    print("Hello, " + name + "!")
 }
+
+run(greet, program = "greet", version = "0.1.0", description = "Greet a person")

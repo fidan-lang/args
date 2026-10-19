@@ -1,24 +1,102 @@
-# args 0.1.0 - local release candidate
+# args — signature-driven command lines for Fidan
 
-A dependency-free Fidan argument parser. Not published; no production registry availability is claimed. The manifest range >=1.0.16,<2.0.0 is a local compatibility placeholder, not proof that the published 1.0.16 native backends can run this package. Real package tests exposed compiler fixes on the audit branch (nullable/Dynamic values and file-scoped imports). **Before publishing, select approved compiler/helper patch versions and tighten the minimum compiler constraint to that fixed release.** Uses the existing Fidan license included in LICENSE; owner approval of package licensing is a release gate.
+Local, unpublished `0.1.0` candidate. Define a normal typed action: `args` reads its
+parameter names, types and defaults from the compiler, converts CLI arguments and
+calls that action. There is no handwritten option dictionary or error-result object.
 
-`parse(argv, specification)` accepts a list of strings (for example `std.env.args()`) and a dictionary mapping long option names to `{kind: "flag" | "value", short?: string, default?: value, required?: boolean}`. Keys in source dictionaries must be quoted. Returns `values`, `positionals`, `passthrough`, and `error`. Empty error means success. Unknown options/missing values are errors. Values use last occurrence wins; flags are idempotent. `--name=value`, `--name value`, `-nvalue`, `-n=value` and combined short flags are supported. `--` ends parsing: remaining tokens appear in both positionals and passthrough. Lone `-` and negative numeric tokens are positional. A value option consumes the next token literally except `--`; use `--name=--literal` when clarity matters.
+```fdn
+use args.{command, run}
 
-`-h/--help` and `-V/--version` are reserved flag names and bypass required-option checks. `help(program, version, description, specification)` returns help text; the caller decides when to print it. Parsing never exits the host or reads environment/files itself. `integer_value(value,name)` and `float_value(value,name)` return `{value,error}` with friendly conversion errors, using Fidan's existing conversions.
+@command
+action greet with (
+    optional name oftype string = "Dal",
+    optional verbose oftype boolean = false,
+) {
+    if verbose { print("Greeting " + name) }
+    print("Hello, " + name + "!")
+}
 
-Run `../fidan/target/debug/fidan run tests/parser.fdn` (add `.exe` on Windows). Package locally with `fidan dal package . --output target/args-0.1.0.tar.gz`. Local registry install and native validation are required before owner-approved publication. Schema configuration must contain the documented kinds and field types; it is programmer input, not another dynamically typed schema language.
+run(greet)
+```
 
+```sh
+fidan run greet.fdn -- --name Ada --verbose
+fidan run greet.fdn -- -nAda -v
+fidan run greet.fdn -- --help
+```
 
-Local reproducible gate (Node 24 is development tooling only):
+The checked-in example uses the existing relative file import so it runs before
+publication: `fidan run examples/greet.fdn -- --name Ada`. The `use args` form is
+verified after installation from the disposable local Dal registry; public
+installation requires an owner-approved publication first.
+
+## Signature contract
+
+- Parameters without `optional`/a default are required positionals, also accepted
+  as named options. `certain` additionally preserves Fidan's non-Nothing contract.
+- Optional parameters retain their Fidan defaults. Computed defaults execute only
+  when the callback is invoked, never while generating help or reading metadata.
+- Supported parameter types: `string`, `integer`, `float`, `boolean`; a final
+  `list oftype string` collects remaining positionals. An omitted optional rest
+  parameter uses its callback default; a certain rest parameter receives `[]`
+  when empty.
+- Long names replace underscores with hyphens. Unique ASCII initials become short
+  names, excluding reserved `-h` and `-V`. Colliding initials have long names only.
+- Boolean flags accept `--verbose` / `--no-verbose`; defaults may be true or false.
+- Value options accept `--name=value`, `--name value`, `-nvalue` and `-n=value`.
+  Short flags may be combined. Repeated options use the last supplied value.
+- `--` ends option parsing. Remaining strings are positionals even when beginning
+  with `-`. Lone `-` and negative numbers are positionals without escaping.
+- A value option consumes the next token literally except `--`; `--name=--help`
+  passes that text. `--help`/`-h` and `--version`/`-V` do not call the callback or
+  require missing positionals. `help` and `version` are reserved parameter names.
+- Unsupported signature types fail explicitly. Stdlib callable metadata currently
+  erases parameter types, so stdlib functions are not typed command definitions.
+
+`@command` validates the signature using the existing decorator mechanism; it
+neither replaces the action nor installs a global command registry. `run` performs
+the same validation for undecorated actions, inline actions and captured closures.
+The return value is the callback's return value, or `nothing` for help/version.
+
+```fdn
+use args.{run, ArgumentError}
+
+attempt {
+    run(greet, argv set ["--unknown"])
+} catch error oftype ArgumentError {
+    eprint(error.message)
+}
+```
+
+This assumes `greet` is defined as above. Invalid options, missing arguments,
+unsupported signatures and conversion failures **throw an `ArgumentError`** with
+`message` and `parameter` fields. They never become a dictionary's `error` key.
+Callback exceptions propagate unchanged. Error objects use Fidan's existing typed
+catch semantics. Parsing does not exit the host process.
+
+`run(callback, argv?, program?, version?, description?)` defaults `argv` to
+`std.env.args()` and `program` to the action's name. Supply optional settings using
+Fidan named arguments. `help(callback, program?, version?, description?)` returns
+text without invoking the callback. Pass a version string when using `--version`.
+
+## Local verification and release boundary
 
 ```sh
 node tests/check.mjs
-# With the matching private audit LLVM helper installed in an isolated FIDAN_HOME:
+# Matching private audit LLVM helper in an isolated FIDAN_HOME:
 node tests/check.mjs --llvm
 ```
 
-`FIDAN_BIN` may override the compiler path. The shared Dal integration runner additionally
-publishes this candidate only to a disposable local registry, installs it into a fresh
-consumer and builds/runs a CLI entry. No registry account, public name reservation,
-production compatibility or publication is implied. License approval and the corrected
-compiler minimum remain owner release gates.
+`FIDAN_BIN` overrides the compiler location. The gate checks formatting, interpreter
+thresholds 0/1, Cranelift AOT, optional LLVM full LTO, real CLI arguments, help/version
+and canonical archive packaging. The Dal local gate also publishes to a disposable
+registry, installs the package into a fresh consumer, then runs/builds that consumer.
+No production publication, tag or public availability is claimed.
+
+This API requires the **audit compiler candidate**, including `action.parameters`
+and `action.invoke(list)`, and matching LLVM helper protocol **7** for LLVM AOT.
+Published Fidan 1.0.16 / older helpers do not provide this API. The manifest range
+`>=1.0.16,<2.0.0` is provisional for local testing, not a stable compatibility claim.
+Before publication, the owner must select coordinated compiler/helper patch versions
+and tighten that minimum to the actual supporting release. Package licensing remains
+an owner release gate; the existing Fidan license is included in `LICENSE`.

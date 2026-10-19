@@ -1,261 +1,371 @@
-# args 0.1.0: pure parsing, no process or environment side effects.
-@precompile
-action result with (
-    values oftype dynamic,
-    positionals oftype dynamic,
-    passthrough oftype dynamic,
-    error oftype dynamic,
-) returns dynamic {
-    return {
-        "values": values,
-        "positionals": positionals,
-        "passthrough": passthrough,
-        "error": error,
+# Command parameters come from the compiler, never a second handwritten schema.
+
+use std.env
+
+object ArgumentError {
+    var message oftype string = ""
+    var parameter oftype string = ""
+
+    @precompile
+    new with (certain message oftype string, optional parameter oftype string = "") {
+        this.message = message
+        this.parameter = parameter
     }
 }
 
-action parse with (certain argv oftype list oftype string, certain specification oftype dynamic) returns dynamic {
-    var values oftype dynamic = {"help": false, "version": false}
+# Decorators validate definitions; run() also validates undecorated callbacks.
+@precompile
+action command with (certain callback oftype action) returns action {
+    var parameters = callback.parameters
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"]
+        var kind = parameter["type"]
+
+        if name == "help" or name == "version" {
+            panic(ArgumentError("Reserved command parameter: " + name, name))
+        }
+        if kind == "list oftype string" {
+            if index != len(parameters) - 1 {
+                panic(ArgumentError("Rest parameter must be last: " + name, name))
+            }
+        } else {
+            if kind != "string" and kind != "integer" and kind != "float" and kind != "boolean" {
+                panic(ArgumentError("Unsupported command parameter type: " + kind, name))
+            }
+        }
+        if parameter["variadic"] {
+            panic(ArgumentError("Variadic stdlib callables are not command callbacks", name))
+        }
+    }
+
+    return callback
+}
+
+@precompile
+action convert with (certain text oftype string, certain parameter oftype dynamic) returns dynamic {
+    var kind = parameter["type"]
+
+    if kind == "string" {
+        return text
+    }
+    if kind == "boolean" {
+        if text == "true" {
+            return true
+        }
+        if text == "false" {
+            return false
+        }
+
+        panic(ArgumentError("Expected boolean for " + parameter["name"], parameter["name"]))
+    }
+    attempt {
+        if kind == "integer" {
+            return integer(text)
+        }
+        if kind == "float" {
+            return float(text)
+        }
+    } catch cause {
+        panic(ArgumentError(
+            "Expected " + kind + " for " + parameter["name"] + ": " + text,
+            parameter["name"],
+        ))
+    }
+
+    panic(ArgumentError("Unsupported parameter type: " + kind, parameter["name"]))
+}
+
+# Only unambiguous ASCII initials become shortcuts; long names always work.
+# ponytail: scanning initials is O(parameter_count^2) per help/run; for very large
+# signatures, precompute their frequencies once instead of scanning each name.
+@precompile
+action short_name with (certain parameters oftype dynamic, certain index oftype integer) returns string {
+    var first = parameters[index]["name"][0]
+
+    if first == "h" or first == "V" or not "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".contains(
+        first,
+    ) {
+        return ""
+    }
+
+    var matches = 0
+
+    for parameter in parameters {
+        if parameter["name"][0] == first {
+            matches = matches + 1
+        }
+    }
+
+    return first if matches == 1 else ""
+}
+
+@precompile
+action help with (
+    certain callback oftype action,
+    optional program oftype string = "",
+    optional version oftype string = "",
+    optional description oftype string = "",
+) returns string {
+    command(callback)
+
+    var parameters = callback.parameters
+    var title = callback.name if program == "" else program
+    var text = "Usage: " + title + " [OPTIONS]"
+
+    for parameter in parameters {
+        if parameter["type"] == "list oftype string" {
+            text = text + " [" + parameter["name"] + "...]"
+        } else {
+            if parameter["required"] {
+                text = text + " " + parameter["name"]
+            }
+        }
+    }
+
+    text = text + "\n"
+
+    if version != "" {
+        text = text + version + "\n"
+    }
+    if description != "" {
+        text = text + description + "\n"
+    }
+
+    text = text + "\nOptions:\n  -h, --help    Show help\n  -V, --version Show version\n"
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+
+        if parameter["type"] != "list oftype string" {
+            var name = parameter["name"].replace("_", "-")
+
+            text = text + "  --" + name
+
+            var short = short_name(parameters, index)
+
+            if short != "" {
+                text = text + ", -" + short
+            }
+            if parameter["type"] == "boolean" {
+                text = text + " / --no-" + name
+            } else {
+                text = text + " " + parameter["type"]
+            }
+            if parameter["required"] {
+                text = text + " (required)"
+            }
+            if parameter["default_known"] {
+                text = text + " [default: " + string(parameter["default"]) + "]"
+            }
+
+            text = text + "\n"
+        }
+    }
+
+    return text
+}
+
+# Help/version do not invoke the callback. Other successes return its actual value.
+# Parse errors throw ArgumentError; callback errors propagate unchanged.
+@precompile
+action run with (
+    certain callback oftype action,
+    optional argv oftype list oftype string,
+    optional program oftype string = "",
+    optional version oftype string = "",
+    optional description oftype string = "",
+) returns dynamic {
+    command(callback)
+
+    var tokens oftype list oftype string = env.args() if argv == nothing else argv
+    var parameters = callback.parameters
+    var names oftype dynamic = {}
+    var aliases oftype dynamic = {}
+    var values oftype dynamic = {}
     var positionals oftype list oftype string = []
-    var passthrough oftype list oftype string = []
-    var aliases oftype dynamic = {"h": "help", "V": "version"}
-    var kinds oftype dynamic = {"help": "flag", "version": "flag"}
-    var required oftype list oftype string = []
-    var provided oftype list oftype string = []
+    var rest = -1
 
-    for name in specification.keys() {
-        if name == "help" or name == "version" or name == "" or name.contains("=") or name.startsWith(
-            "-",
-        ) {
-            return result(
-                    values,
-                    positionals,
-                    passthrough,
-                    "Invalid or reserved option name: " + name,
-                )
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"].replace("_", "-")
+
+        if names.containsKey(name) {
+            panic(ArgumentError("Duplicate command option: --" + name, name))
         }
 
-        var entry oftype dynamic = specification[name]
-        var kind oftype string = entry["kind"]
+        names[name] = index
 
-        if kind != "flag" and kind != "value" {
-            return result(
-                    values,
-                    positionals,
-                    passthrough,
-                    "Expected flag or value kind for --" + name,
-                )
-        }
+        if parameter["type"] == "list oftype string" {
+            rest = index
+        } else {
+            var short = short_name(parameters, index)
 
-        kinds[name] = kind
-        values[name] = false if kind == "flag" else nothing
-
-        if entry.containsKey("default") {
-            values[name] = entry["default"]
-        }
-        if entry.containsKey("required") {
-            if entry["required"] {
-                required.append(name)
+            if short != "" {
+                aliases[short] = name
             }
-        }
-        if entry.containsKey("short") {
-            var short oftype string = entry["short"]
-
-            if len(short) != 1 or aliases.containsKey(short) or short == "-" or short == "=" or "0123456789".contains(
-                short,
-            ) {
-                return result(
-                        values,
-                        positionals,
-                        passthrough,
-                        "Invalid or duplicate short option: " + short,
-                    )
-            }
-
-            aliases[short] = name
         }
     }
 
     var i = 0
+    var literal = false
 
-    while i < len(argv) {
-        var token = argv[i]
+    while i < len(tokens) {
+        var token = tokens[i]
 
-        if token == "--" {
-            i = i + 1
-
-            while i < len(argv) {
-                passthrough.append(argv[i])
-                positionals.append(argv[i])
-                i = i + 1
-            }
-
-            break
-        }
-        if token.startsWith("--") {
-            var equal = token.indexOf("=")
-            var name = token[2:] if equal == -1 else token[2:equal]
-
-            if not kinds.containsKey(name) {
-                return result(values, positionals, passthrough, "Unknown option: --" + name)
-            }
-            if kinds[name] == "flag" {
-                if equal != -1 {
-                    return result(values, positionals, passthrough, "Flag takes no value: --" + name)
-                }
-
-                values[name] = true
-            } else {
-                if equal != -1 {
-                    values[name] = token[equal + 1:]
-                } else {
-                    if i + 1 >= len(argv) {
-                        return result(
-                                values,
-                                positionals,
-                                passthrough,
-                                "Missing value for --" + name,
-                            )
-                    }
-                    if argv[i + 1] == "--" {
-                        return result(
-                                values,
-                                positionals,
-                                passthrough,
-                                "Missing value for --" + name,
-                            )
-                    }
-
-                    i = i + 1
-                    values[name] = argv[i]
-                }
-            }
-
-            provided.append(name)
+        if literal {
+            positionals.append(token)
         } else {
-            if token.startsWith("-") and len(token) > 1 and not "0123456789".contains(token[1:2]) {
-                var j = 1
+            if token == "--" {
+                literal = true
+            } else {
+                if token == "--help" or token == "-h" {
+                    print(help(callback, program, version, description))
+                    return nothing
+                }
+                if token == "--version" or token == "-V" {
+                    print(version)
+                    return nothing
+                }
 
-                while j < len(token) {
-                    var short = token[j]
+                var options oftype list oftype string = []
+                var attached oftype dynamic = nothing
 
-                    if not aliases.containsKey(short) {
-                        return result(values, positionals, passthrough, "Unknown option: -" + short)
+                if token.startsWith("--") {
+                    var equal = token.indexOf("=")
+
+                    options.append(token[2:] if equal == -1 else token[2:equal])
+
+                    if equal != -1 {
+                        attached = token[equal + 1:]
+                    }
+                } else {
+                    if token.startsWith("-") and len(token) > 1 and not "0123456789.".contains(
+                        token[1:2],
+                    ) {
+                        var j = 1
+
+                        while j < len(token) {
+                            var short = token[j]
+
+                            if not aliases.containsKey(short) {
+                                panic(ArgumentError("Unknown option: -" + short, short))
+                            }
+
+                            var name = aliases[short]
+
+                            options.append(name)
+
+                            if parameters[names[name]]["type"] != "boolean" {
+                                if j + 1 < len(token) {
+                                    attached = token[j + 1:]
+
+                                    if attached.startsWith("=") {
+                                        attached = attached[1:]
+                                    }
+                                }
+
+                                break
+                            }
+
+                            j = j + 1
+                        }
+                    } else {
+                        positionals.append(token)
+                    }
+                }
+                for option in options {
+                    var name = option
+                    var enabled = true
+
+                    if name.startsWith("no-") and not names.containsKey(name) {
+                        name = name[3:]
+                        enabled = false
+                    }
+                    if not names.containsKey(name) {
+                        panic(ArgumentError("Unknown option: --" + option, option))
                     }
 
-                    var name oftype string = aliases[short]
+                    var parameter = parameters[names[name]]
 
-                    if kinds[name] == "flag" {
-                        values[name] = true
+                    if parameter["type"] == "list oftype string" {
+                        panic(ArgumentError("Rest arguments are positional: " + name, name))
+                    }
+                    if parameter["type"] == "boolean" {
+                        if attached != nothing and option == options[len(options) - 1] {
+                            panic(ArgumentError("Flag takes no value: --" + option, name))
+                        }
+
+                        values[name] = enabled
                     } else {
-                        if j + 1 < len(token) {
-                            var attached = token[j + 1:]
-
-                            values[name] = attached[1:] if attached.startsWith("=") else attached
-                        } else {
-                            if i + 1 >= len(argv) {
-                                return result(
-                                        values,
-                                        positionals,
-                                        passthrough,
-                                        "Missing value for --" + name,
-                                    )
+                        if not enabled {
+                            panic(ArgumentError("Not a boolean flag: --" + option, name))
+                        }
+                        if attached == nothing {
+                            if i + 1 >= len(tokens) {
+                                panic(ArgumentError("Missing value for --" + name, name))
                             }
-                            if argv[i + 1] == "--" {
-                                return result(
-                                        values,
-                                        positionals,
-                                        passthrough,
-                                        "Missing value for --" + name,
-                                    )
+                            if tokens[i + 1] == "--" {
+                                panic(ArgumentError("Missing value for --" + name, name))
                             }
 
                             i = i + 1
-                            values[name] = argv[i]
+                            attached = tokens[i]
                         }
 
-                        j = len(token)
+                        values[name] = convert(attached, parameter)
                     }
-
-                    provided.append(name)
-                    j = j + 1
                 }
-            } else {
-                positionals.append(token)
             }
         }
 
         i = i + 1
     }
-    if not values["help"] and not values["version"] {
-        for name in required {
-            if not provided.contains(name) {
-                if kinds[name] == "flag" or values[name] == nothing {
-                    return result(
-                            values,
-                            positionals,
-                            passthrough,
-                            "Missing required option: --" + name,
-                        )
+
+    var arguments oftype list oftype dynamic = []
+    var positional = 0
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"].replace("_", "-")
+
+        if index == rest {
+            var remaining oftype list oftype string = []
+
+            while positional < len(positionals) {
+                remaining.append(positionals[positional])
+                positional = positional + 1
+            }
+            if len(remaining) == 0 and not parameter["required"] {
+                arguments.append(parameter["default"] if parameter["default_known"] else nothing)
+            } else {
+                arguments.append(remaining)
+            }
+            # Nothing is the existing invocation sentinel: computed defaults run
+            # in the callback prologue, never while inspecting its signature.
+
+        } else {
+            if values.containsKey(name) {
+                arguments.append(values[name])
+            } else {
+                if parameter["required"] {
+                    if positional >= len(positionals) {
+                        panic(ArgumentError("Missing required argument: " + name, name))
+                    }
+
+                    arguments.append(convert(positionals[positional], parameter))
+                    positional = positional + 1
+                } else {
+                    arguments
+                        .append(parameter["default"] if parameter["default_known"] else nothing)
                 }
             }
         }
     }
-
-    return result(values, positionals, passthrough, "")
-}
-
-action integer_value with (certain value oftype dynamic, certain name oftype string) returns dynamic {
-    attempt {
-        return {"value": integer(value), "error": ""}
-    } catch error {
-        return {"value": nothing, "error": "Expected integer for --" + name}
-    }
-}
-
-action float_value with (certain value oftype dynamic, certain name oftype string) returns dynamic {
-    attempt {
-        return {"value": float(value), "error": ""}
-    } catch error {
-        return {"value": nothing, "error": "Expected float for --" + name}
-    }
-}
-
-action help with (
-    certain program oftype string,
-    certain version oftype string,
-    certain description oftype string,
-    certain specification oftype dynamic,
-) returns string {
-    var text = program + " " + version + "\n" + description + "
-
-Options:
-  -h, --help    Show help
-  -V, --version Show version
-"
-
-    for name in specification.keys() {
-        var entry oftype dynamic = specification[name]
-
-        text = text + "  --" + name
-
-        if entry.containsKey("short") {
-            text = text + ", -" + entry["short"]
-        }
-        if entry["kind"] == "value" {
-            text = text + " VALUE"
-        }
-        if entry.containsKey("required") {
-            if entry["required"] {
-                text = text + " (required)"
-            }
-        }
-        if entry.containsKey("default") {
-            text = text + " [default: " + string(entry["default"]) + "]"
-        }
-
-        text = text + "\n"
+    if positional < len(positionals) {
+        panic(ArgumentError("Unexpected positional argument: " + positionals[positional]))
     }
 
-    return text
+    return callback.invoke(arguments)
 }
