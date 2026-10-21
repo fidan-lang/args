@@ -108,5 +108,13 @@ Published Fidan 1.0.16 / older helpers do not provide this API. The source manif
 intentionally uses `=0.0.0-args-unreleased` to block normal installation. Only the
 capability-probed staging copy receives an exact local compiler version. Before
 publication, the owner must select coordinated compiler/helper patch versions and
-replace the sentinel with the actual supporting public release constraint. Package licensing remains
-an owner release gate; the existing Fidan license is included in `LICENSE`.
+replace the sentinel with the actual supporting public release constraint. The package is Apache-2.0; release approval and a supporting compiler remain
+separate gates.
+
+## License
+
+Licensed under the unmodified [Apache License 2.0](LICENSE), with attribution in
+[NOTICE](NOTICE). Commercial use, modification and redistribution are permitted.
+The library does not grant official Fidan branding or endorsement; truthful
+descriptive references are allowed. See the separate
+[Fidan trademark policy](https://github.com/fidan-lang/fidan/blob/main/TRADEMARKS.md).

@@ -1,7 +1,8 @@
 // Run from any working directory. All artifacts stay local under target/.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync } from "node:fs";
 import { stageLocalPackage } from "./stage-local.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,10 @@ const binary =
     "../fidan/target/debug",
     process.platform === "win32" ? "fidan.exe" : "fidan",
   );
+assert.equal(createHash("sha256").update(readFileSync(path.join(root,"LICENSE"))).digest("hex"),
+  "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30");
+assert(readFileSync(path.join(root,"NOTICE"),"utf8").includes("Copyright"));
+assert(readFileSync(path.join(root,"dal.toml"),"utf8").includes('license = "Apache-2.0"'));
 const useLlvm = process.argv.includes("--llvm");
 assert(
   process.argv.slice(2).every((value) => value === "--llvm"),
