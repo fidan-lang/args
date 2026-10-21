@@ -1,6 +1,14 @@
 # args — signature-driven command lines for Fidan
 
-Local, unpublished `0.1.0` candidate. Define a normal typed action: `args` reads its
+Local, unpublished `0.1.0` candidate. **RELEASE-ONLY BLOCKER:** published Fidan
+1.0.16 does not implement the required callable metadata/invocation contract.
+`dal.toml` deliberately uses the non-release sentinel `=0.0.0-args-unreleased`;
+normal installation must fail until an owner-approved compatible compiler and
+protocol-8 LLVM helper are released and this minimum is replaced. No release
+number is selected by this source change. Local fixture validation copies a
+staging-only manifest after executing the parser suite with the actual local CLI.
+
+ Define a normal typed action: `args` reads its
 parameter names, types and defaults from the compiler, converts CLI arguments and
 calls that action. There is no handwritten option dictionary or error-result object.
 
@@ -77,7 +85,8 @@ catch semantics. Parsing does not exit the host process.
 `run(callback, argv?, program?, version?, description?)` defaults `argv` to
 `std.env.args()` and `program` to the action's name. Supply optional settings using
 Fidan named arguments. `help(callback, program?, version?, description?)` returns
-text without invoking the callback. Pass a version string when using `--version`.
+text without invoking the callback. Pass a non-blank version string when using `--version`; absent/blank version metadata
+raises `ArgumentError` rather than printing an empty success line.
 
 ## Local verification and release boundary
 
@@ -94,9 +103,10 @@ registry, installs the package into a fresh consumer, then runs/builds that cons
 No production publication, tag or public availability is claimed.
 
 This API requires the **audit compiler candidate**, including `action.parameters`
-and `action.invoke(list)`, and matching LLVM helper protocol **7** for LLVM AOT.
-Published Fidan 1.0.16 / older helpers do not provide this API. The manifest range
-`>=1.0.16,<2.0.0` is provisional for local testing, not a stable compatibility claim.
-Before publication, the owner must select coordinated compiler/helper patch versions
-and tighten that minimum to the actual supporting release. Package licensing remains
+and `action.invoke(list)`, and matching LLVM helper protocol **8** for LLVM AOT.
+Published Fidan 1.0.16 / older helpers do not provide this API. The source manifest
+intentionally uses `=0.0.0-args-unreleased` to block normal installation. Only the
+capability-probed staging copy receives an exact local compiler version. Before
+publication, the owner must select coordinated compiler/helper patch versions and
+replace the sentinel with the actual supporting public release constraint. Package licensing remains
 an owner release gate; the existing Fidan license is included in `LICENSE`.

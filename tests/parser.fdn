@@ -156,7 +156,6 @@ attempt {
 assert_eq(callback_error, true)
 assert_eq(help(describe, "demo", "0.1.0", "Demo").contains("--count, -c integer (required)"), true)
 assert_eq(help(describe).contains("[default: Dal]"), true)
-print("args parser checks passed")
 
 # Required arity and non-Nothing are separate Fidan parameter contracts.
 @command
@@ -168,3 +167,13 @@ assert_eq(run(plain, ["12"]), 12)
 expect_error(action {
     run(plain, [])
 }, "Missing required argument: value")
+# Recognized version flags must never succeed with a blank version.
+expect_error(action {
+    run(describe, ["--version"])
+}, "Version metadata is required")
+expect_error(action {
+    run(describe, ["-V"], version = "   ")
+}, "Version metadata is required")
+assert_eq(run(describe, ["--version"], version = "0.1.0"), nothing)
+assert_eq(run(describe, ["--help"]), nothing)
+print("args parser checks passed")

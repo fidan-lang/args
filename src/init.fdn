@@ -225,6 +225,10 @@ action run with (
                     return nothing
                 }
                 if token == "--version" or token == "-V" {
+                    if version.trim() == "" {
+                        panic(ArgumentError("Version metadata is required for --version", "version"))
+                    }
+
                     print(version)
                     return nothing
                 }

@@ -1,7 +1,8 @@
 // Run from any working directory. All artifacts stay local under target/.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
+import { stageLocalPackage } from "./stage-local.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -86,6 +87,11 @@ for (const separator of [[], ["--"]])
     "Hello, Dal!",
   );
 run(binary, ["dal", "package", ".", "--output", "target/args-0.1.0.tar.gz"]);
+const staging=path.join(root,"target",`args-staged-${process.pid}-${Date.now()}`);
+try {
+  stageLocalPackage(staging,binary);
+  run(binary,["dal","package",staging,"--output","target/args-local-validation.tar.gz"]);
+} finally { rmSync(staging,{recursive:true,force:true}); }
 console.log(
   `args: formatting, interpreter/JIT, ${useLlvm ? "Cranelift/LLVM full LTO" : "Cranelift"}, both argv forms and canonical packaging passed.`,
 );

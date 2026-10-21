@@ -1,7 +1,9 @@
 [package]
 name = "args"
 version = "0.1.0"
-fidan = ">=1.0.16, <2.0.0"
+# RELEASE-ONLY BLOCKER: no published compiler implements the required callback API.
+# Replace this sentinel only after an owner-approved compatible compiler/helper release.
+fidan = "=0.0.0-args-unreleased"
 description = "Signature-driven command callbacks for Fidan command-line programs"
 license = "LicenseRef-Fidan"
 readme = "README.md"
