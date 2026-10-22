@@ -107,8 +107,11 @@ and `action.invoke(list)`, and matching LLVM helper protocol **8** for LLVM AOT.
 Published Fidan 1.0.16 / older helpers do not provide this API. The source manifest
 intentionally uses `=0.0.0-args-unreleased` to block normal installation. Only the
 capability-probed staging copy receives an exact local compiler version. Before
-publication, the owner must select coordinated compiler/helper patch versions and
-replace the sentinel with the actual supporting public release constraint. The package is Apache-2.0; release approval and a supporting compiler remain
+publication, the owner must select coordinated compiler/helper release versions and
+replace the sentinel with the actual supporting public release constraint.
+The proposed pair and isolated release-preparation command are maintained in
+`fidan/config/release-candidate.json` and `fidan/scripts/prepare-release-candidate.py`
+in the sibling compiler checkout; these are not published release metadata. The package is Apache-2.0; release approval and a supporting compiler remain
 separate gates.
 
 ## License

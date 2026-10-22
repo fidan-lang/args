@@ -77,6 +77,7 @@ for (const backend of ["cranelift", ...(useLlvm ? ["llvm"] : [])]) {
     greet,
   ]);
   assert.equal(run(greet, ["--name", "Dal"]).trim(), "Hello, Dal!");
+  assert.equal(run(greet, ["--name", "Dal Person", "--verbose"]).trim().replaceAll("\r", ""), "Greeting Dal Person\nHello, Dal Person!");
   assert(run(greet, ["--help"]).includes("Usage: greet"));
   assert.equal(run(greet, ["--version"]).trim(), "0.1.0");
 }
@@ -87,9 +88,10 @@ for (const separator of [[], ["--"]])
       "examples/greet.fdn",
       ...separator,
       "--name",
-      "Dal",
-    ]).trim(),
-    "Hello, Dal!",
+      "Dal Person",
+      "--verbose",
+    ]).trim().replaceAll("\r", ""),
+    "Greeting Dal Person\nHello, Dal Person!",
   );
 run(binary, ["dal", "package", ".", "--output", "target/args-0.1.0.tar.gz"]);
 const staging=path.join(root,"target",`args-staged-${process.pid}-${Date.now()}`);
