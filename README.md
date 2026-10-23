@@ -249,3 +249,11 @@ The unmodified [Apache License 2.0](LICENSE), with attribution in [NOTICE](NOTIC
 permits commercial use, modification and redistribution. Branding/endorsement is
 separate; truthful descriptive references are allowed. See
 [Fidan's trademark policy](https://github.com/fidan-lang/fidan/blob/main/TRADEMARKS.md).
+
+### Compiler diagnostics versus application options
+
+With the upcoming Fidan compiler candidate, `fidan -vv run examples/single.fdn -- --help`
+enables compiler DEBUG diagnostics on stderr and forwards `--help` to the args
+application. Put Fidan's `-v`/`-vv`/`-vvv` before the source path. Flags after
+`--` belong entirely to your CLI; args callbacks and application stdout are
+unchanged. The published compiler 1.0.16 does not provide these diagnostic flags.
