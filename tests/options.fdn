@@ -1,0 +1,62 @@
+use "../src/init.fdn"
+use std.env
+
+action settings with (
+    optional name oftype string = "default",
+    optional enabled oftype boolean = true,
+    optional numbers oftype list oftype integer = [],
+) returns dynamic {
+    return (name, enabled, numbers)
+}
+
+var app = App("options", "1.0")
+var definition = app.add("show", settings)
+
+definition
+    .option(
+        "name",
+        aliases = ["--who", "-w"],
+        env = "FIDAN_ARGS_OPTION_TEST_NAME",
+        choices = ["Ada", "Dal"],
+    )
+definition.option("enabled", env = "FIDAN_ARGS_OPTION_TEST_ENABLED")
+definition
+    .option(
+        "numbers",
+        validator = action with (certain values oftype list oftype integer) returns boolean {
+            return len(values) < 4
+        },
+    )
+env.set("FIDAN_ARGS_OPTION_TEST_NAME", "Ada")
+env.set("FIDAN_ARGS_OPTION_TEST_ENABLED", "false")
+assert_eq(app.run(["show"]), ("Ada", false, []))
+assert_eq(
+        app.run(["show", "--who", "Dal", "--enabled", "--numbers", "1", "--numbers=2", "3"]),
+        ("Dal", true, [1, 2, 3]),
+    )
+assert_eq(app.run(["show", "-wAda", "--no-enabled", "--", "-2", "4"]), ("Ada", false, [-2, 4]))
+
+var caught = 0
+
+attempt {
+    app.run(["show", "--name", "unknown"])
+} catch error oftype ArgumentError {
+    caught = caught + 1
+}
+attempt {
+    app.run(["show", "--numbers", "bad"])
+} catch error oftype ArgumentError {
+    caught = caught + 1
+}
+attempt {
+    app.run(["show", "1", "2", "3", "4"])
+} catch error oftype ArgumentError {
+    caught = caught + 1
+}
+attempt {
+    definition.option("missing", env = "IGNORED")
+} catch error oftype ArgumentError {
+    caught = caught + 1
+}
+assert_eq(caught, 4)
+print("args option checks passed")

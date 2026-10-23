@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add instance-scoped multi-command apps, aliases, nested groups and scoped global hooks.
+- Add reflected primitive lists, environment-backed options, choices and validators.
+- Add non-evaluating command/flag/choice completion with Bash, Zsh, Fish and PowerShell adapters.
+- Include all modules, documentation and completion assets in canonical DAL archives.
+- Exercise every regression/example with the coordinated interpreter/JIT/Cranelift/LLVM candidate.
+
 - Raise ArgumentError for --version without configured version metadata.
 - Block normal installation until a compatible compiler is public; local staging
   probes callable support before writing its private exact-version manifest.

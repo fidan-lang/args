@@ -7,4 +7,4 @@ fidan = "=0.0.0-args-unreleased"
 description = "Signature-driven command callbacks for Fidan command-line programs"
 license = "Apache-2.0"
 readme = "README.md"
-include = ["src/**", "tests/**", "examples/**", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
+include = ["src/**", "assets/**", "docs/**", "tests/**", "examples/**", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]

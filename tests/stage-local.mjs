@@ -19,7 +19,7 @@ export function stageLocalPackage(destination, binary) {
   const version=/\bfidan\s+(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?)/i.exec(run(["--version"]))?.[1];
   assert(version,"compiler must report its exact test version");
   fs.mkdirSync(destination); // Never overwrite an existing directory, even for fixtures.
-  for(const entry of ["dal.toml","src","tests","examples","README.md","LICENSE","NOTICE","CHANGELOG.md"])
+  for(const entry of ["dal.toml","src","tests","examples","docs","assets","README.md","LICENSE","NOTICE","CHANGELOG.md"])
     fs.cpSync(path.join(root,entry),path.join(destination,entry),{recursive:true,errorOnExist:true,force:false});
   fs.writeFileSync(path.join(destination,"dal.toml"),
     source.replace(blocker,`# STAGING ONLY: capability-probed local source compiler, not a public compatibility claim.\nfidan = "=${version}"`));

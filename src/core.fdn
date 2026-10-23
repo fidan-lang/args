@@ -1,0 +1,814 @@
+# Command parameters come from the compiler, never a second handwritten schema.
+
+use std.env
+
+# A parse result is not an error result: all failures throw ArgumentError.
+# Group routing can validate every level before executing any callback.
+object ParsedArguments {
+    var arguments oftype list oftype dynamic = []
+    var remainder oftype list oftype string = []
+    var handled oftype boolean = false
+
+    @precompile
+    new with (
+        certain arguments oftype list oftype dynamic,
+        certain remainder oftype list oftype string,
+        optional handled oftype boolean = false,
+    ) {
+        this.arguments = arguments
+        this.remainder = remainder
+        this.handled = handled
+    }
+}
+
+object ArgumentError {
+    var message oftype string = ""
+    var parameter oftype string = ""
+
+    @precompile
+    new with (certain message oftype string, optional parameter oftype string = "") {
+        this.message = message
+        this.parameter = parameter
+    }
+}
+
+const var LIST_PREFIX = "list oftype "
+
+# Extra policy for a reflected parameter; its type/default/arity are never repeated.
+object CommandOption {
+    var parameter oftype string = ""
+    var aliases oftype list oftype string = []
+    var environment oftype string = ""
+    var choices oftype list oftype dynamic = []
+    var validator oftype dynamic
+    var separator oftype string = ","
+
+    @precompile
+    new with (
+        certain parameter oftype string,
+        optional aliases oftype list oftype string = [],
+        optional env oftype string = "",
+        optional choices oftype list oftype dynamic = [],
+        optional validator oftype action,
+        optional separator oftype string = ",",
+    ) {
+        this.parameter = parameter.replace("_", "-")
+        this.aliases = aliases[:]
+        this.environment = env
+        this.choices = choices[:]
+        this.validator = validator
+        this.separator = separator
+
+        if separator == "" {
+            panic(ArgumentError("Environment list separator must not be empty", parameter))
+        }
+        if validator != nothing and len(validator.parameters) != 1 {
+            panic(ArgumentError("A validator must accept exactly one value", parameter))
+        }
+    }
+}
+
+# Decorators validate definitions; run() also validates undecorated callbacks.
+@precompile
+action command with (certain callback oftype action) returns action {
+    var parameters = callback.parameters
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"]
+        var kind = parameter["type"]
+
+        if name == "help" or name == "version" {
+            panic(ArgumentError("Reserved command parameter: " + name, name))
+        }
+
+        var scalar = kind[len(LIST_PREFIX):] if kind.startsWith(LIST_PREFIX) else kind
+
+        if kind.startsWith(LIST_PREFIX) and parameter["required"] and index != len(parameters) - 1 {
+            panic(ArgumentError("Rest parameter must be last: " + name, name))
+        }
+        if scalar != "string" and scalar != "integer" and scalar != "float" and scalar != "boolean" {
+            panic(ArgumentError("Unsupported command parameter type: " + kind, name))
+        }
+        if parameter["variadic"] {
+            panic(ArgumentError("Variadic stdlib callables are not command callbacks", name))
+        }
+    }
+
+    return callback
+}
+
+@precompile
+action convert_kind with (certain text oftype string, certain kind oftype string, certain name oftype string) returns dynamic {
+    if kind == "string" {
+        return text
+    }
+    if kind == "boolean" {
+        if text == "true" {
+            return true
+        }
+        if text == "false" {
+            return false
+        }
+
+        panic(ArgumentError("Expected boolean for " + name, name))
+    }
+    attempt {
+        if kind == "integer" {
+            return integer(text)
+        }
+        if kind == "float" {
+            return float(text)
+        }
+    } catch cause {
+        panic(ArgumentError("Expected " + kind + " for " + name + ": " + text, name))
+    }
+
+    panic(ArgumentError("Unsupported parameter type: " + kind, name))
+}
+
+@precompile
+action convert with (certain text oftype string, certain parameter oftype dynamic) returns dynamic {
+    var kind = parameter["type"]
+
+    return convert_kind(
+            text,
+            kind[len(LIST_PREFIX):] if kind.startsWith(LIST_PREFIX) else kind,
+            parameter["name"],
+        )
+}
+
+@precompile
+action validate_option with (
+    certain value oftype dynamic,
+    certain option oftype CommandOption,
+    certain kind oftype string,
+) {
+    if len(option.choices) > 0 {
+        var candidates = value if kind.startsWith(LIST_PREFIX) else [value]
+
+        for candidate in candidates {
+            if not option.choices.contains(candidate) {
+                panic(ArgumentError(
+                    "Invalid choice for " + option.parameter + ": " + string(candidate),
+                    option.parameter,
+                ))
+            }
+        }
+    }
+    if option.validator != nothing {
+        var accepted = option.validator(value)
+
+        if type(accepted) != "boolean" {
+            panic(ArgumentError(
+                "Validator must return a boolean for " + option.parameter,
+                option.parameter,
+            ))
+        }
+        if not accepted {
+            panic(ArgumentError("Validation failed for " + option.parameter, option.parameter))
+        }
+    }
+}
+
+# Only unambiguous ASCII initials become shortcuts; long names always work.
+# ponytail: scanning initials is O(parameter_count^2) per help/run; for very large
+# signatures, precompute their frequencies once instead of scanning each name.
+@precompile
+action short_name with (certain parameters oftype dynamic, certain index oftype integer) returns string {
+    var first = parameters[index]["name"][0]
+
+    if first == "h" or first == "V" or not "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".contains(
+        first,
+    ) {
+        return ""
+    }
+
+    var matches = 0
+
+    for parameter in parameters {
+        if parameter["name"][0] == first {
+            matches = matches + 1
+        }
+    }
+
+    return first if matches == 1 else ""
+}
+
+# One canonical option catalog for parsing, help and shell completion.
+object OptionCatalog {
+    var names oftype dynamic = {}
+    var aliases oftype dynamic = {}
+    var policy oftype dynamic = {}
+
+    @precompile
+    new with (certain callback oftype action, certain settings oftype list oftype CommandOption) {
+        command(callback)
+
+        var parameters = callback.parameters
+
+        for index in 0 .. len(parameters) {
+            var parameter = parameters[index]
+            var name = parameter["name"].replace("_", "-")
+
+            if this.names.containsKey(name) {
+                panic(ArgumentError("Duplicate command option: --" + name, name))
+            }
+
+            this.names[name] = index
+
+            var short = short_name(parameters, index)
+
+            if short != "" {
+                this.aliases[short] = name
+            }
+        }
+        for setting in settings {
+            var name = setting.parameter
+
+            if not this.names.containsKey(name) {
+                panic(ArgumentError("Unknown parameter: " + name, name))
+            }
+            if this.policy.containsKey(name) {
+                panic(ArgumentError("Duplicate option policy: " + name, name))
+            }
+
+            this.policy[name] = setting
+
+            var index = this.names[name]
+
+            for alias in setting.aliases {
+                if alias.contains("=") or alias.contains("\n") or alias.contains("\r") or alias.contains(
+                    " ",
+                ) or alias.contains("\t") {
+                    panic(ArgumentError("Invalid option alias: " + alias, name))
+                }
+                if alias == "--help" or alias == "--version" or alias == "-h" or alias == "-V" {
+                    panic(ArgumentError("Reserved option alias: " + alias, name))
+                }
+                if alias.startsWith("--") and len(alias) > 2 {
+                    var long = alias[2:]
+
+                    if this.names.containsKey(long) and this.names[long] != index {
+                        panic(ArgumentError("Duplicate option alias: " + alias, name))
+                    }
+
+                    this.names[long] = index
+                } else {
+                    if not alias.startsWith("-") or len(alias) != 2 {
+                        panic(ArgumentError("Expected a --long or -x alias: " + alias, name))
+                    }
+
+                    var short = alias[1:]
+
+                    if this.aliases.containsKey(short) and this.aliases[short] != name {
+                        panic(ArgumentError("Duplicate option alias: " + alias, name))
+                    }
+
+                    this.aliases[short] = name
+                }
+            }
+        }
+        for name in this.names.keys() {
+            if parameters[this.names[name]]["type"] == "boolean" and this.names.containsKey(
+                "no-" + name,
+            ) {
+                panic(ArgumentError("Boolean negation conflicts with option: --no-" + name, name))
+            }
+        }
+    }
+}
+
+@precompile
+action help with (
+    certain callback oftype action,
+    optional program oftype string = "",
+    optional version oftype string = "",
+    optional description oftype string = "",
+    optional settings oftype list oftype CommandOption = [],
+) returns string {
+    var catalog = OptionCatalog(callback, settings)
+    var parameters = callback.parameters
+    var title = callback.name if program == "" else program
+    var text = "Usage: " + title + " [OPTIONS]"
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+
+        if parameter["type"].startsWith(LIST_PREFIX) and index == len(parameters) - 1 {
+            text = text + " [" + parameter["name"] + "...]"
+        } else {
+            if parameter["required"] {
+                text = text + " " + parameter["name"]
+            }
+        }
+    }
+
+    text = text + "\n"
+
+    if version != "" {
+        text = text + version + "\n"
+    }
+    if description != "" {
+        text = text + description + "\n"
+    }
+
+    text = text + "\nOptions:\n  -h, --help    Show help\n  -V, --version Show version\n"
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"].replace("_", "-")
+
+        text = text + "  --" + name
+
+        var short = short_name(parameters, index)
+
+        if short != "" {
+            text = text + ", -" + short
+        }
+        if parameter["type"] == "boolean" {
+            text = text + " / --no-" + name
+        } else {
+            text = text + " " + parameter["type"]
+        }
+        if parameter["required"] {
+            text = text + " (required)"
+        }
+        if parameter["default_known"] {
+            text = text + " [default: " + string(parameter["default"]) + "]"
+        }
+        if catalog.policy.containsKey(name) {
+            var option = catalog.policy[name]
+
+            if len(option.aliases) > 0 {
+                text = text + " [aliases: " + ", ".join(option.aliases) + "]"
+            }
+            if option.environment != "" {
+                text = text + " [env: " + option.environment + "]"
+            }
+            if len(option.choices) > 0 {
+                text = text + " [choices: " + string(option.choices) + "]"
+            }
+        }
+
+        text = text + "\n"
+    }
+
+    return text
+}
+
+# Help/version do not invoke the callback. Other successes return its actual value.
+# Parse errors throw ArgumentError; callback errors propagate unchanged.
+@precompile
+action parse_command with (
+    certain callback oftype action,
+    optional argv oftype list oftype string,
+    optional program oftype string = "",
+    optional version oftype string = "",
+    optional description oftype string = "",
+    optional stop_at_positional oftype boolean = false,
+    optional help_text oftype string = "",
+    optional settings oftype list oftype CommandOption = [],
+) returns ParsedArguments {
+    command(callback)
+
+    var tokens oftype list oftype string = env.args() if argv == nothing else argv
+    var parameters = callback.parameters
+    var names oftype dynamic = {}
+    var aliases oftype dynamic = {}
+    var values oftype dynamic = {}
+    var positionals oftype list oftype string = []
+    var rest = -1
+    var events oftype list oftype dynamic = []
+    var policy oftype dynamic = {}
+    var remainder oftype list oftype string = []
+    var catalog = OptionCatalog(callback, settings)
+
+    names = catalog.names
+    aliases = catalog.aliases
+    policy = catalog.policy
+
+    if len(parameters) > 0 and parameters[-1]["type"].startsWith(LIST_PREFIX) {
+        rest = len(parameters) - 1
+    }
+
+    var i = 0
+    var literal = false
+
+    while i < len(tokens) {
+        var token = tokens[i]
+
+        if literal {
+            if stop_at_positional {
+                remainder = tokens[i:]
+                break
+            }
+
+            events.append(("position", len(positionals), token))
+            positionals.append(token)
+        } else {
+            if token == "--" {
+                literal = true
+            } else {
+                if token == "--help" or token == "-h" {
+                    print(
+                            help_text if help_text != "" else help(
+                                callback,
+                                program,
+                                version,
+                                description,
+                                settings,
+                            ),
+                        )
+                    return ParsedArguments([], [], true)
+                }
+                if token == "--version" or token == "-V" {
+                    if version.trim() == "" {
+                        panic(ArgumentError("Version metadata is required for --version", "version"))
+                    }
+
+                    print(version)
+                    return ParsedArguments([], [], true)
+                }
+
+                var options oftype list oftype string = []
+                var attached oftype dynamic = nothing
+
+                if token.startsWith("--") {
+                    var equal = token.indexOf("=")
+
+                    options.append(token[2:] if equal == -1 else token[2:equal])
+
+                    if equal != -1 {
+                        attached = token[equal + 1:]
+                    }
+                } else {
+                    if token.startsWith("-") and len(token) > 1 and not "0123456789.".contains(
+                        token[1:2],
+                    ) {
+                        var j = 1
+
+                        while j < len(token) {
+                            var short = token[j]
+
+                            if not aliases.containsKey(short) {
+                                panic(ArgumentError("Unknown option: -" + short, short))
+                            }
+
+                            var name = aliases[short]
+
+                            options.append(name)
+
+                            if parameters[names[name]]["type"] != "boolean" {
+                                if j + 1 < len(token) {
+                                    attached = token[j + 1:]
+
+                                    if attached.startsWith("=") {
+                                        attached = attached[1:]
+                                    }
+                                }
+
+                                break
+                            }
+
+                            j = j + 1
+                        }
+                    } else {
+                        if stop_at_positional {
+                            remainder = tokens[i:]
+                            break
+                        }
+
+                        events.append(("position", len(positionals), token))
+                        positionals.append(token)
+                    }
+                }
+                for option in options {
+                    var name = option
+                    var enabled = true
+
+                    if name.startsWith("no-") and not names.containsKey(name) {
+                        name = name[3:]
+                        enabled = false
+                    }
+                    if not names.containsKey(name) {
+                        panic(ArgumentError("Unknown option: --" + option, option))
+                    }
+
+                    var index = names[name]
+                    var parameter = parameters[index]
+
+                    name = parameter["name"].replace("_", "-")
+
+                    if parameter["type"] == "boolean" {
+                        if attached != nothing and option == options[len(options) - 1] {
+                            panic(ArgumentError("Flag takes no value: --" + option, name))
+                        }
+
+                        values[name] = enabled
+                    } else {
+                        if not enabled {
+                            panic(ArgumentError("Not a boolean flag: --" + option, name))
+                        }
+                        if attached == nothing {
+                            if i + 1 >= len(tokens) {
+                                panic(ArgumentError("Missing value for --" + name, name))
+                            }
+                            if tokens[i + 1] == "--" {
+                                panic(ArgumentError("Missing value for --" + name, name))
+                            }
+
+                            i = i + 1
+                            attached = tokens[i]
+                        }
+
+                        var value = convert(attached, parameter)
+
+                        if parameter["type"].startsWith(LIST_PREFIX) {
+                            if not values.containsKey(name) {
+                                values[name] = []
+                            }
+
+                            values[name].append(value)
+                            events.append(("list", index, value))
+                        } else {
+                            values[name] = value
+                        }
+                    }
+                }
+            }
+        }
+
+        i = i + 1
+    }
+
+    var arguments oftype list oftype dynamic = []
+    var positional = 0
+
+    for index in 0 .. len(parameters) {
+        var parameter = parameters[index]
+        var name = parameter["name"].replace("_", "-")
+        var supplied = false
+        var value oftype dynamic = nothing
+
+        if index == rest and (values.containsKey(name) or positional < len(positionals)) {
+            var remaining oftype list oftype dynamic = []
+
+            for event in events {
+                if event[0] == "position" and event[1] >= positional {
+                    remaining.append(convert(event[2], parameter))
+                }
+                if event[0] == "list" and event[1] == index {
+                    remaining.append(event[2])
+                }
+            }
+
+            value = remaining
+            positional = len(positionals)
+            supplied = true
+        } else {
+            if values.containsKey(name) {
+                value = values[name]
+                supplied = true
+            } else {
+                if parameter["required"] and index != rest and positional < len(positionals) {
+                    value = convert(positionals[positional], parameter)
+                    positional = positional + 1
+                    supplied = true
+                }
+            }
+        }
+        if not supplied and policy.containsKey(name) and policy[name].environment != "" {
+            var raw = env.get(policy[name].environment)
+
+            if raw != nothing {
+                if parameter["type"].startsWith(LIST_PREFIX) {
+                    var entries oftype list oftype dynamic = []
+
+                    for part in raw.split(policy[name].separator) {
+                        entries.append(convert(part, parameter))
+                    }
+
+                    value = entries
+                } else {
+                    value = convert(raw, parameter)
+                }
+
+                supplied = true
+            }
+        }
+        if supplied {
+            if policy.containsKey(name) {
+                validate_option(value, policy[name], parameter["type"])
+            }
+        } else {
+            if index == rest and parameter["required"] {
+                value = []
+            } else {
+                if parameter["required"] {
+                    panic(ArgumentError("Missing required argument: " + name, name))
+                }
+
+                value = parameter["default"] if parameter["default_known"] else nothing
+            }
+        }
+
+        arguments.append(value)
+    }
+    if positional < len(positionals) {
+        panic(ArgumentError("Unexpected positional argument: " + positionals[positional]))
+    }
+
+    return ParsedArguments(arguments, remainder)
+}
+
+# Embeddable single-command entry point; no global registry and no process exit.
+action run with (
+    certain callback oftype action,
+    optional argv oftype list oftype string,
+    optional program oftype string = "",
+    optional version oftype string = "",
+    optional description oftype string = "",
+    optional settings oftype list oftype CommandOption = [],
+) returns dynamic {
+    var tokens = env.args() if argv == nothing else argv
+
+    if len(tokens) > 0 and tokens[0] == COMPLETION_FLAG {
+        for candidate in complete(callback, tokens[1:], settings) {
+            print(candidate)
+        }
+
+        return nothing
+    }
+
+    var parsed = parse_command(callback, tokens, program, version, description, settings = settings)
+
+    if parsed.handled {
+        return nothing
+    }
+
+    return callback.invoke(parsed.arguments)
+}
+
+# Versioned line protocol. Adapters must pass token arrays, never eval output.
+const var COMPLETION_FLAG = "--args-complete"
+
+@precompile
+action option_index with (certain catalog oftype OptionCatalog, certain token oftype string) returns integer {
+    var name = token[2:] if token.startsWith("--") else token[1:]
+
+    if token.startsWith("--") {
+        if catalog.names.containsKey(name) {
+            return catalog.names[name]
+        }
+        if name.startsWith("no-") and catalog.names.containsKey(name[3:]) {
+            return catalog.names[name[3:]]
+        }
+    } else {
+        if len(name) == 1 and catalog.aliases.containsKey(name) {
+            return catalog.names[catalog.aliases[name]]
+        }
+    }
+
+    return -1
+}
+
+# Returns the first command/positional index, or len(tokens) if all are options.
+@precompile
+action command_offset with (
+    certain callback oftype action,
+    certain tokens oftype list oftype string,
+    optional settings oftype list oftype CommandOption = [],
+) returns integer {
+    var catalog = OptionCatalog(callback, settings)
+    var parameters = callback.parameters
+    var i = 0
+
+    while i < len(tokens) {
+        var token = tokens[i]
+
+        if token == "--" {
+            return i + 1
+        }
+        if not token.startsWith("-") or token == "-" or "0123456789.".contains(token[1:2]) {
+            return i
+            # Locate token boundaries only: no conversion, environment or callback effects.
+
+        }
+        if token.startsWith("--") {
+            var equal = token.indexOf("=")
+            var index = option_index(catalog, token if equal == -1 else token[:equal])
+
+            if index == -1 {
+                return len(tokens)
+            }
+            if parameters[index]["type"] != "boolean" and equal == -1 {
+                i = i + 1
+            }
+        } else {
+            var j = 1
+
+            while j < len(token) {
+                var index = option_index(catalog, "-" + token[j])
+
+                if index == -1 {
+                    return len(tokens)
+                }
+                if parameters[index]["type"] != "boolean" {
+                    if j + 1 == len(token) {
+                        i = i + 1
+                    }
+
+                    break
+                }
+
+                j = j + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return i
+}
+
+@precompile
+action complete with (
+    certain callback oftype action,
+    certain words oftype list oftype string,
+    optional settings oftype list oftype CommandOption = [],
+) returns list oftype string {
+    var catalog = OptionCatalog(callback, settings)
+    var parameters = callback.parameters
+
+    if len(words) > 0 and words[:-1].contains("--") {
+        return []
+    }
+
+    var prefix = "" if len(words) == 0 else words[-1]
+    var index = -1
+    var lead = ""
+    var equal = prefix.indexOf("=")
+
+    if prefix.startsWith("--") and equal != -1 {
+        lead = prefix[:equal + 1]
+        index = option_index(catalog, prefix[:equal])
+        prefix = prefix[equal + 1:]
+    } else {
+        if len(words) > 1 {
+            index = option_index(catalog, words[-2])
+        }
+    }
+
+    var candidates oftype list oftype string = []
+
+    if index != -1 and parameters[index]["type"] != "boolean" {
+        var name = parameters[index]["name"].replace("_", "-")
+
+        if catalog.policy.containsKey(name) {
+            for choice in catalog.policy[name].choices {
+                var candidate = string(choice)
+
+                if candidate.startsWith(prefix) and not candidate.contains("\n") and not candidate.contains(
+                    "\r",
+                ) {
+                    candidates.append(lead + candidate)
+                }
+            }
+        }
+
+        return candidates
+    }
+    if prefix != "" and not prefix.startsWith("-") {
+        return candidates
+    }
+    for flag in ["--help", "--version"] {
+        if flag.startsWith(prefix) {
+            candidates.append(flag)
+        }
+    }
+    for name in catalog.names.keys() {
+        var flag = "--" + name
+
+        if flag.startsWith(prefix) {
+            candidates.append(flag)
+        }
+        if parameters[catalog.names[name]]["type"] == "boolean" {
+            flag = "--no-" + name
+
+            if flag.startsWith(prefix) {
+                candidates.append(flag)
+            }
+        }
+    }
+    for alias in catalog.aliases.keys() {
+        var flag = "-" + alias
+
+        if flag.startsWith(prefix) {
+            candidates.append(flag)
+        }
+    }
+
+    candidates.sort()
+    return candidates
+}
