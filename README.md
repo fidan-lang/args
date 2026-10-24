@@ -33,7 +33,9 @@ fidan run examples/single.fdn -- --help
 ```
 
 The checked-in examples use relative imports so they work before publication;
-the documented `use args` form applies to an installed package. `@command` is an
+the documented grouped `use args.{run}` / `use args.{App}` forms apply to an
+installed package. A plain `use args` is a namespace import and requires qualified
+names. `@command` is an
 optional eager signature check. It does not register the action: `run` performs
 the same validation without the decorator. Ordinary `callback(a, b)` calls remain
 normal Fidan; generic `callback.invoke(list)` supplies the runtime-computed argv.
