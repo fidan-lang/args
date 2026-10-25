@@ -238,8 +238,6 @@ The runner checks every regression file and example, both argv forms, interprete
 thresholds 0/1, native executions, formatting, canonical archive packaging and
 included adapter files. Shell adapter tests execute real shell syntax with
 controlled token sources; they are not claims of interactive GUI shell coverage.
-See [the API design](docs/CLI_API_DESIGN.md) and
-[the scoped argparse/Typer comparison](docs/ARGPARSE_TYPER_COMPARISON.md).
 
 Release approval and publishing a supporting compiler/helper/package are external
 gates. The sentinel will be replaced with the real coordinated release constraint
