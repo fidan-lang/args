@@ -50,6 +50,7 @@ const regressionCases = [
   ["groups", "args group checks passed"],
   ["options", "args option checks passed"],
   ["completion", "args completion checks passed"],
+  ["version", "1.2.3\n2.3.4\n2.3.4\n3.4.5\nargs version checks passed"],
 ];
 const exampleCases = [
   ["greet", ["--name", "Dal Person", "--verbose"], "Greeting Dal Person\nHello, Dal Person!"],
@@ -73,7 +74,7 @@ let interpreterExecutions = 0;
 let nativeExecutions = 0;
 for (const threshold of ["0", "1"]) {
   for (const [name, expected] of regressionCases) {
-    assert(run(binary, ["run", "--jit-threshold", threshold, `tests/${name}.fdn`]).includes(expected));
+    assert(normalized(run(binary, ["run", "--jit-threshold", threshold, `tests/${name}.fdn`])).includes(expected));
     interpreterExecutions++;
   }
   for (const [name, args, expected] of exampleCases) {
@@ -97,7 +98,7 @@ for (const backend of ["cranelift", ...(useLlvm ? ["llvm"] : [])]) {
     return output;
   };
   for (const [name, expected] of regressionCases) {
-    assert(run(compile(`tests/${name}.fdn`, name), []).includes(expected));
+    assert(normalized(run(compile(`tests/${name}.fdn`, name), [])).includes(expected));
     nativeExecutions++;
   }
   const examples = new Map();

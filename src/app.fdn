@@ -317,7 +317,8 @@ object App {
         return plan
     }
 
-    action complete with (certain words oftype list oftype string) returns list oftype string {
+    action complete with (certain words oftype list oftype string, optional inherited_version oftype string = "") returns list oftype string {
+        var version = this.version if this.version != "" else inherited_version
         var callback = no_options if this.global_command == nothing else this.global_command.callback
         var settings = [] if this.global_command == nothing else this.global_command.options
         var offset = command_offset(callback, words[:-1], settings) if len(words) > 0 else 0
@@ -329,13 +330,13 @@ object App {
                 return []
             }
             if entry.group != nothing {
-                return entry.group.complete(words[offset + 1:])
+                return entry.group.complete(words[offset + 1:], version)
             }
 
-            return complete(entry.callback, words[offset + 1:], entry.options)
+            return complete(entry.callback, words[offset + 1:], entry.options, version)
         }
 
-        var candidates = complete(callback, words, settings)
+        var candidates = complete(callback, words, settings, version)
         var prefix = "" if len(words) == 0 else words[-1]
 
         if offset <= len(words) - 1 or len(words) == 0 {

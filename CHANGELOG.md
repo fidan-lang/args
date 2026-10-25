@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Advertise version in help/completion only with nonblank metadata; preserve inherited
+  and overridden group versions and typed failures for unconfigured version requests.
+
 - Add instance-scoped multi-command apps, aliases, nested groups and scoped global hooks.
 - Add reflected primitive lists, environment-backed options, choices and validators.
 - Add non-evaluating command/flag/choice completion with Bash, Zsh, Fish and PowerShell adapters.

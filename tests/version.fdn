@@ -1,0 +1,82 @@
+use "../src/init.fdn"
+
+var effects = []
+
+action handler {
+    effects.append("handler")
+}
+
+action expect_version_error with (certain callback oftype action) {
+    var caught = false
+
+    attempt {
+        callback()
+    } catch error oftype ArgumentError {
+        assert(error.message.contains("Version metadata is required"))
+        caught = true
+    }
+
+    assert_eq(caught, true)
+}
+
+for metadata in ["", "   "] {
+    assert_eq(help(handler, version = metadata).contains("--version"), false)
+    assert_eq(help(handler, version = metadata).contains("-V"), false)
+    assert_eq(complete(handler, ["--ver"], version = metadata), [])
+    run(handler, ["--help"], version = metadata)
+
+    for flag in ["--version", "-V"] {
+        expect_version_error(action {
+            run(handler, [flag], version = metadata)
+        })
+    }
+
+    var app = App("unversioned", metadata)
+    var child = App()
+    var nested = App()
+
+    app.add("run", handler)
+    nested.add("run", handler)
+    child.group("nested", nested)
+    app.group("child", child)
+    assert_eq(app.help().contains("--version"), false)
+    assert_eq(app.complete(["--ver"]), [])
+    assert_eq(app.complete(["child", "nested", "run", "--ver"]), [])
+    app.run(["--help"])
+    app.run(["child", "nested", "--help"])
+    app.run(["child", "nested", "run", "--help"])
+
+    for route in [
+        ["--version"],
+        ["run", "-V"],
+        ["child", "nested", "--version"],
+        ["child", "nested", "run", "-V"],
+    ] {
+        expect_version_error(action {
+            app.run(route)
+        })
+    }
+
+    assert_eq(effects, [])
+}
+assert(help(handler, version = "1.2.3").contains("-V, --version"))
+assert_eq(complete(handler, ["--ver"], version = "1.2.3"), ["--version"])
+run(handler, ["-V"], version = "1.2.3")
+
+var versioned = App("versioned", "2.3.4")
+var inherited = App()
+var overridden = App("override", "3.4.5")
+
+overridden.add("run", handler)
+inherited.add("run", handler)
+inherited.group("override", overridden)
+versioned.group("child", inherited)
+assert(versioned.help().contains("-V, --version"))
+assert(inherited.help(inherited_version = "2.3.4").contains("-V, --version"))
+assert_eq(versioned.complete(["child", "run", "--ver"]), ["--version"])
+assert_eq(versioned.complete(["child", "override", "run", "--ver"]), ["--version"])
+versioned.run(["--version"])
+versioned.run(["child", "run", "--version"])
+versioned.run(["child", "override", "run", "-V"])
+assert_eq(effects, [])
+print("args version checks passed")

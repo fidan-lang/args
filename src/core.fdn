@@ -306,15 +306,18 @@ action help with (
 
     text = text + "\n"
 
-    if version != "" {
+    if version.trim() != "" {
         text = text + version + "\n"
     }
     if description != "" {
         text = text + description + "\n"
     }
 
-    text = text + "\nOptions:\n  -h, --help    Show help\n  -V, --version Show version\n"
+    text = text + "\nOptions:\n  -h, --help    Show help\n"
 
+    if version.trim() != "" {
+        text = text + "  -V, --version Show version\n"
+    }
     for index in 0 .. len(parameters) {
         var parameter = parameters[index]
         var name = parameter["name"].replace("_", "-")
@@ -634,7 +637,7 @@ action run with (
     var tokens = env.args() if argv == nothing else argv
 
     if len(tokens) > 0 and tokens[0] == COMPLETION_FLAG {
-        for candidate in complete(callback, tokens[1:], settings) {
+        for candidate in complete(callback, tokens[1:], settings, version) {
             print(candidate)
         }
 
@@ -737,6 +740,7 @@ action complete with (
     certain callback oftype action,
     certain words oftype list oftype string,
     optional settings oftype list oftype CommandOption = [],
+    optional version oftype string = "",
 ) returns list oftype string {
     var catalog = OptionCatalog(callback, settings)
     var parameters = callback.parameters
@@ -782,7 +786,13 @@ action complete with (
     if prefix != "" and not prefix.startsWith("-") {
         return candidates
     }
-    for flag in ["--help", "--version"] {
+
+    var flags = ["--help"]
+
+    if version.trim() != "" {
+        flags.append("--version")
+    }
+    for flag in flags {
         if flag.startsWith(prefix) {
             candidates.append(flag)
         }

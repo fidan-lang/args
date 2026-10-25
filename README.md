@@ -161,8 +161,9 @@ configurable separator (`,` by default).
   switches can be combined. `--` ends options; negative numbers are positional
   without escaping. A value option consumes its next token literally except `--`.
 - `--help`/`-h` and `--version`/`-V` do not invoke handlers/defaults or require missing
-  positionals. Version output requires a nonblank configured version. `help` and
-  `version` are reserved parameter names.
+  positionals. Help and completion advertise version only with nonblank configured
+  metadata; explicitly requesting it without that metadata raises `ArgumentError`.
+  `help` and `version` are reserved parameter names.
 - Unsupported callback signature types fail explicitly. Stdlib functions whose
   metadata does not expose concrete parameter types are not command definitions.
 - Parse errors throw `ArgumentError` with `message` and `parameter`. Catch it using
@@ -187,7 +188,7 @@ configurable separator (`,` by default).
 | `app.globals(callback)` | Register scoped options/hook once; return CommandDefinition |
 | `app.run(argv?)` | Parse complete command chain, then invoke hooks/leaf |
 | `app.help()` / `app.complete(words)` | Pure help / completion candidates |
-| `complete(callback, words, settings?)` | Single-command completion candidates |
+| `complete(callback, words, settings?, version?)` | Single-command completion candidates |
 
 `argv` defaults to `std.env.args()`. Internal parser/catalog/plan objects are
 implementation details, even though Fidan's file re-exports expose their names.
