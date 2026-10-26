@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: fidan-lang/fidan-actions
-          ref: a1800c42f9fba633b78ab6a96c204952ebca5ff5
+          ref: 096d2a496cfd03b31fb0e67e4cdbb34f23f98df3
           path: audited-setup
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -51,5 +51,7 @@ jobs:
           $suffix = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
           $env:FIDAN_BIN = Join-Path $env:GITHUB_WORKSPACE "compiler/target/debug/fidan$suffix"
           $env:FIDAN_HOME = Join-Path $env:RUNNER_TEMP 'args-candidate-home'
+          node --test args/tests/stage-local.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Package staging contract failed' }
           node args/tests/check.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Args interpreter/JIT/Cranelift contracts failed' }

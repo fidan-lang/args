@@ -258,3 +258,10 @@ enables compiler DEBUG diagnostics on stderr and forwards `--help` to the args
 application. Put Fidan's `-v`/`-vv`/`-vvv` before the source path. Flags after
 `--` belong entirely to your CLI; args callbacks and application stdout are
 unchanged. The published compiler 1.0.16 does not provide these diagnostic flags.
+
+### Planned stable availability
+
+The coordinated target is Fidan **1.1.0 stable** and LLVM helper **1.1.0**, protocol 8;
+args remains **0.1.0**. No intermediate public RC is required. Publish args only after
+that compiler/helper release and the production DAL launch are approved and operational.
+The checked-in `=0.0.0-args-unreleased` sentinel stays in place until both gates are met.
