@@ -1,0 +1,15 @@
+use "../src/init.fdn"
+
+action greet with (optional name oftype string = "Dal") {
+    print("Hello, " + name + "!")
+}
+
+action build with (optional release oftype boolean = false) {
+    print("release" if release else "debug")
+}
+
+var app = App("mytool", "0.1.0", "An example with two commands")
+
+app.add("greet", greet, "Greet someone", ["hello"])
+app.add("build", build, "Select a build mode")
+app.run()

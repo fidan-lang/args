@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Keep the standard license byte-identical in checkouts and packages.
+LICENSE text eol=lf

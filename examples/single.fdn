@@ -1,0 +1,7 @@
+use "../src/init.fdn"
+
+action greet with (optional name oftype string = "Dal") {
+    print("Hello, " + name + "!")
+}
+
+run(greet, program = "greet", version = "0.1.0")

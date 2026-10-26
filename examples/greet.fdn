@@ -1,0 +1,12 @@
+use "../src/init.fdn"
+
+@command
+action greet with (optional name oftype string = "Dal", optional verbose oftype boolean = false) {
+    if verbose {
+        print("Greeting " + name)
+    }
+
+    print("Hello, " + name + "!")
+}
+
+run(greet, program = "greet", version = "0.1.0", description = "Greet a person")

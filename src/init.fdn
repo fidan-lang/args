@@ -1,0 +1,3 @@
+# Canonical public package entry; no registration or invocation side effects.
+
+export use "./app.fdn"

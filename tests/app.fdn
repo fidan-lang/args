@@ -1,0 +1,50 @@
+use "../src/init.fdn"
+use std.string as text
+
+action greet with (optional name oftype string = "Dal") returns string {
+    return "Hello " + name
+}
+
+action build with (optional release oftype boolean = false) returns boolean {
+    return release
+}
+
+var app = App("mytool", "0.1.0")
+
+app.add("greet", greet, aliases = ["hello"], description = "Greet someone")
+app.add("build", build, description = "Build a project")
+assert_eq(app.run(["hello", "--name", "Ada"]), "Hello Ada")
+assert_eq(app.run(["build", "--release"]), true)
+
+var administration = App()
+
+administration.add("greet", greet)
+app.group("admin", administration, aliases = ["a"])
+assert_eq(app.run(["a", "greet", "--name", "Nested"]), "Hello Nested")
+
+var isolated = App()
+
+isolated.add("greet", build)
+assert_eq(isolated.run(["greet"]), false)
+assert_eq(app.run(["greet"]), "Hello Dal")
+
+var failed = false
+
+attempt {
+    app.add("other", build, aliases = ["hello"])
+} catch error oftype ArgumentError {
+    failed = true
+}
+assert_eq(failed, true)
+assert_eq(app.help().contains("Greet someone"), true)
+
+var invalid_name_rejected = false
+
+attempt {
+    app.add("bad" + text.fromCharCode(0) + "name", build)
+} catch error oftype ArgumentError {
+    invalid_name_rejected = true
+}
+assert_eq(invalid_name_rejected, true)
+assert_eq(len(app.entries), 3)
+print("args app checks passed")

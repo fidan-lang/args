@@ -1,0 +1,64 @@
+use "../src/init.fdn"
+
+var effects = []
+
+action dangerous returns string {
+    effects.append("default")
+    return "default"
+}
+
+action greet with (
+    optional name oftype string = dangerous(),
+    optional verbose oftype boolean = false,
+) {
+    effects.append("handler")
+}
+
+var app = App("tool", "1.0")
+
+app
+    .add("greet", greet, aliases = ["hello"])
+    .option("name", choices = ["Ada", "Dal"], aliases = ["--person"])
+
+var child = App()
+
+child.add("greet", greet)
+app.group("admin", child)
+assert_eq(app.complete(["g"]), ["greet"])
+assert_eq(app.complete(["h"]), ["hello"])
+assert_eq(app.complete(["admin", "g"]), ["greet"])
+assert_eq(app.complete(["hello", "--na"]), ["--name"])
+assert_eq(app.complete(["greet", "--name", "A"]), ["Ada"])
+assert_eq(app.complete(["greet", "--person=D"]), ["--person=Dal"])
+assert_eq(app.complete(["unknown", ""]), [])
+assert_eq(effects, [])
+app.run(["--help"])
+app.run(["greet", "--help"])
+app.run(["admin", "--version"])
+assert_eq(effects, [])
+assert(app.help().contains("Commands:"))
+
+var scoped_flags = []
+
+action root_flags with (
+    optional verbose oftype boolean = false,
+    optional quiet oftype boolean = false,
+    optional profile oftype string = "dev",
+) {
+    scoped_flags.append((verbose, quiet, profile))
+}
+
+action complete_leaf with (optional name oftype string = "Dal") {}
+
+var scoped = App("scoped", "1.0")
+
+scoped.globals(root_flags)
+scoped.add("show", complete_leaf)
+assert_eq(scoped.complete(["-vq", "show", "--na"]), ["--name"])
+assert_eq(scoped.complete(["-pprod", "show", "--na"]), ["--name"])
+assert_eq(scoped.complete(["-vqpdev", "show", "--na"]), ["--name"])
+assert_eq(scoped.complete(["--profile=prod", "show", "--na"]), ["--name"])
+assert_eq(scoped_flags, [])
+scoped.run(["-vq", "-p", "prod", "show"])
+assert_eq(scoped_flags, [(true, true, "prod")])
+print("args completion checks passed")

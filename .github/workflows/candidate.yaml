@@ -1,0 +1,57 @@
+name: Args compiler candidate contracts
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: args
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: fidan-lang/fidan-actions
+          ref: 096d2a496cfd03b31fb0e67e4cdbb34f23f98df3
+          path: audited-setup
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - name: Validate immutable compiler and installer identities
+        id: candidate
+        run: node audited-setup/scripts/verify-candidate.mjs args/ci/compiler-candidate.json audited-setup
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: fidan-lang/fidan
+          ref: ${{ steps.candidate.outputs.compiler_sha }}
+          path: compiler
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: compiler
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libdbus-1-dev
+      - name: Build the exact candidate and execute args contracts
+        shell: pwsh
+        env:
+          EXPECTED_COMPILER_SHA: ${{ steps.candidate.outputs.compiler_sha }}
+        run: |
+          $actual = git -C compiler rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_COMPILER_SHA) { throw 'Compiler source identity mismatch' }
+          cargo build --manifest-path compiler/Cargo.toml -p fidan-cli --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate compiler build failed' }
+          $suffix = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          $env:FIDAN_BIN = Join-Path $env:GITHUB_WORKSPACE "compiler/target/debug/fidan$suffix"
+          $env:FIDAN_HOME = Join-Path $env:RUNNER_TEMP 'args-candidate-home'
+          node --test args/tests/stage-local.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Package staging contract failed' }
+          node args/tests/check.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Args interpreter/JIT/Cranelift contracts failed' }

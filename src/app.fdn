@@ -1,0 +1,379 @@
+# Shared parser/signature contract; apps add instance-scoped routing only.
+
+export use "./core.fdn"
+use std.env
+
+object ExecutionPlan {
+    var steps oftype list oftype dynamic = []
+    var handled oftype boolean = false
+
+    @precompile
+    new with (optional handled oftype boolean = false) {
+        this.handled = handled
+    }
+
+    action execute returns dynamic {
+        var result oftype dynamic = nothing
+
+        for step in this.steps {
+            result = step[0].invoke(step[1])
+        }
+
+        return result
+    }
+}
+
+object CommandDefinition {
+    var name oftype string = ""
+    var description oftype string = ""
+    var aliases oftype list oftype string = []
+    var callback oftype dynamic
+    var group oftype dynamic
+    var options oftype list oftype CommandOption = []
+
+    @precompile
+    new with (
+        certain name oftype string,
+        callback oftype dynamic,
+        optional description oftype string = "",
+        optional aliases oftype list oftype string = [],
+        optional group oftype dynamic,
+    ) {
+        this.name = name
+        this.callback = callback
+        this.description = description
+        this.aliases = aliases[:]
+        this.group = group
+    }
+
+    action option with (
+        certain parameter oftype string,
+        optional aliases oftype list oftype string = [],
+        optional env oftype string = "",
+        optional choices oftype list oftype dynamic = [],
+        optional validator oftype action,
+        optional separator oftype string = ",",
+    ) returns CommandDefinition {
+        var normalized = parameter.replace("_", "-")
+        var found = false
+
+        for descriptor in this.callback.parameters {
+            if descriptor["name"].replace("_", "-") == normalized {
+                found = true
+            }
+        }
+        if not found {
+            panic(ArgumentError("Unknown parameter: " + parameter, parameter))
+        }
+        for definition in this.options {
+            if definition.parameter == normalized {
+                panic(ArgumentError("Duplicate option policy: " + parameter, parameter))
+            }
+        }
+
+        var policy = CommandOption(parameter, aliases, env, choices, validator, separator)
+        var proposed = this.options[:]
+
+        proposed.append(policy)
+        OptionCatalog(this.callback, proposed)
+        this.options = proposed
+        return this
+    }
+}
+
+# An empty reflected signature is useful for groups without global options.
+# It owns no registry or mutable state and is never an application handler.
+action no_options {}
+
+@precompile
+action validate_command_name with (certain name oftype string) {
+    if name == "" or name.startsWith("-") {
+        panic(ArgumentError(
+            "Command names must be nonempty and must not start with '-': " + name,
+            name,
+        ))
+    }
+    for character in name.chars() {
+        if character.trim() == "" or character.charCode() == 0 {
+            panic(ArgumentError("Command names must not contain whitespace or NUL", name))
+        }
+    }
+}
+
+object App {
+    var program oftype string = "app"
+    var version oftype string = ""
+    var description oftype string = ""
+    var entries oftype list oftype dynamic = []
+    var global_command oftype dynamic
+
+    @precompile
+    new with (
+        optional program oftype string = "app",
+        optional version oftype string = "",
+        optional description oftype string = "",
+    ) {
+        this.program = program
+        this.version = version
+        this.description = description
+    }
+
+    action lookup with (certain name oftype string) returns dynamic {
+        for entry in this.entries {
+            if entry.name == name or entry.aliases.contains(name) {
+                return entry
+            }
+        }
+
+        return nothing
+    }
+
+    action check_names with (certain name oftype string, certain aliases oftype list oftype string) {
+        var proposed = [name]
+
+        proposed.extend(aliases)
+
+        var seen oftype list oftype string = []
+
+        for candidate in proposed {
+            validate_command_name(candidate)
+
+            if seen.contains(candidate) or this.lookup(candidate) != nothing {
+                panic(ArgumentError("Duplicate command or alias: " + candidate, candidate))
+            }
+
+            seen.append(candidate)
+        }
+    }
+
+    action add with (
+        certain name oftype string,
+        certain callback oftype action,
+        optional description oftype string = "",
+        optional aliases oftype list oftype string = [],
+    ) returns CommandDefinition {
+        this.check_names(name, aliases)
+        command(callback)
+
+        var entry = CommandDefinition(name, callback, description, aliases)
+
+        this.entries.append(entry)
+        return entry
+    }
+
+    action contains_group with (certain target oftype App, certain seen oftype list oftype dynamic) returns boolean {
+        if this == target {
+            return true
+        }
+        if seen.contains(this) {
+            return false
+        }
+
+        seen.append(this)
+
+        for entry in this.entries {
+            if entry.group != nothing and entry.group.contains_group(target, seen) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    action group with (
+        certain name oftype string,
+        certain group oftype App,
+        optional description oftype string = "",
+        optional aliases oftype list oftype string = [],
+    ) returns App {
+        this.check_names(name, aliases)
+
+        if group.contains_group(this, []) {
+            panic(ArgumentError("Command groups must not form a cycle", name))
+        }
+
+        this.entries.append(CommandDefinition(name, nothing, description, aliases, group))
+        return group
+    }
+
+    action globals with (certain callback oftype action) returns CommandDefinition {
+        if this.global_command != nothing {
+            panic(ArgumentError("Global options are already configured for this app"))
+        }
+
+        command(callback)
+        this.global_command = CommandDefinition("", callback)
+        return this.global_command
+    }
+
+    action help with (optional program oftype string = "", optional inherited_version oftype string = "") returns string {
+        var title = this.program if program == "" else program
+        var version = this.version if this.version != "" else inherited_version
+        var callback = no_options if this.global_command == nothing else this.global_command.callback
+        var text = help(
+                callback,
+                title,
+                version,
+                this.description,
+                [] if this.global_command == nothing else this.global_command.options,
+            )
+
+        text = text.replace("[OPTIONS]", "[OPTIONS] COMMAND [ARGS]...")
+        text = text + "\nCommands:\n"
+
+        for entry in this.entries {
+            text = text + "  " + entry.name
+
+            if len(entry.aliases) > 0 {
+                text = text + " (" + ", ".join(entry.aliases) + ")"
+            }
+            if entry.description != "" {
+                text = text + "    " + entry.description
+            }
+
+            text = text + "\n"
+        }
+
+        return text
+    }
+
+    action plan with (
+        certain tokens oftype list oftype string,
+        certain program oftype string,
+        certain inherited_version oftype string,
+    ) returns ExecutionPlan {
+        var version = this.version if this.version != "" else inherited_version
+        var callback = no_options if this.global_command == nothing else this.global_command.callback
+        var parsed = parse_command(
+                callback,
+                tokens,
+                program,
+                version,
+                this.description,
+                stop_at_positional = true,
+                help_text = this.help(program, version),
+                settings = [] if this.global_command == nothing else this.global_command.options,
+            )
+
+        if parsed.handled {
+            return ExecutionPlan(true)
+        }
+        if len(parsed.remainder) == 0 {
+            panic(ArgumentError("Missing command. Use --help to list commands."))
+        }
+
+        var name = parsed.remainder[0]
+        var entry = this.lookup(name)
+
+        if entry == nothing {
+            var hints oftype list oftype string = []
+
+            for candidate in this.entries {
+                if candidate.name.startsWith(name[:1]) {
+                    hints.append(candidate.name)
+                }
+            }
+
+            var suggestion = " Did you mean: " + ", ".join(hints) + "?" if len(hints) > 0 else ""
+
+            panic(ArgumentError(
+                "Unknown command: " + name + "." + suggestion + " Use --help to list commands.",
+                name,
+            ))
+        }
+
+        var child oftype dynamic = nothing
+        var title = program + " " + entry.name
+
+        if entry.group != nothing {
+            child = entry.group.plan(parsed.remainder[1:], title, version)
+        } else {
+            var command_arguments = parse_command(
+                    entry.callback,
+                    parsed.remainder[1:],
+                    title,
+                    version,
+                    entry.description,
+                    settings = entry.options,
+                )
+
+            child = ExecutionPlan(command_arguments.handled)
+
+            if not command_arguments.handled {
+                child.steps.append((entry.callback, command_arguments.arguments))
+            }
+        }
+        if child.handled {
+            return child
+        }
+
+        var plan = ExecutionPlan()
+
+        if this.global_command != nothing {
+            plan.steps.append((callback, parsed.arguments))
+        }
+
+        plan.steps.extend(child.steps)
+        return plan
+    }
+
+    action complete with (certain words oftype list oftype string, optional inherited_version oftype string = "") returns list oftype string {
+        var version = this.version if this.version != "" else inherited_version
+        var callback = no_options if this.global_command == nothing else this.global_command.callback
+        var settings = [] if this.global_command == nothing else this.global_command.options
+        var offset = command_offset(callback, words[:-1], settings) if len(words) > 0 else 0
+
+        if offset < len(words) - 1 {
+            var entry = this.lookup(words[offset])
+
+            if entry == nothing {
+                return []
+            }
+            if entry.group != nothing {
+                return entry.group.complete(words[offset + 1:], version)
+            }
+
+            return complete(entry.callback, words[offset + 1:], entry.options, version)
+        }
+
+        var candidates = complete(callback, words, settings, version)
+        var prefix = "" if len(words) == 0 else words[-1]
+
+        if offset <= len(words) - 1 or len(words) == 0 {
+            for entry in this.entries {
+                var names = [entry.name]
+
+                names.extend(entry.aliases)
+
+                for name in names {
+                    if name.startsWith(prefix) {
+                        candidates.append(name)
+                    }
+                }
+            }
+        }
+
+        candidates.sort()
+        return candidates
+    }
+
+    action run with (optional argv oftype list oftype string) returns dynamic {
+        var tokens = env.args() if argv == nothing else argv
+
+        if len(tokens) > 0 and tokens[0] == COMPLETION_FLAG {
+            for candidate in this.complete(tokens[1:]) {
+                print(candidate)
+            }
+
+            return nothing
+        }
+
+        var plan = this.plan(tokens, this.program, this.version)
+
+        if plan.handled {
+            return nothing
+        }
+
+        return plan.execute()
+    }
+}

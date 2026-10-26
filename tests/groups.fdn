@@ -1,0 +1,51 @@
+use "../src/init.fdn"
+
+var events = []
+
+action root_flags with (optional verbose oftype boolean = false) {
+    events.append(("root", verbose))
+}
+
+action group_flags with (optional profile oftype string = "dev") {
+    events.append(("group", profile))
+}
+
+action leaf with (certain value oftype integer) returns integer {
+    events.append(("leaf", value))
+    return value
+}
+
+var app = App("tool", "2.0")
+
+app.globals(root_flags)
+
+var child = App()
+
+child.globals(group_flags)
+child.add("run", leaf, aliases = ["r"])
+app.group("admin", child)
+assert_eq(app.run(["--verbose", "admin", "--profile", "prod", "r", "-3"]), -3)
+assert_eq(events, [("root", true), ("group", "prod"), ("leaf", -3)])
+events = []
+
+var caught = false
+
+attempt {
+    app.run(["admin", "run", "invalid"])
+} catch error oftype ArgumentError {
+    caught = true
+}
+assert_eq(caught, true)
+assert_eq(events, [])
+app.run(["admin", "run", "--help"])
+assert_eq(events, [])
+
+var cycle = false
+
+attempt {
+    child.group("loop", app)
+} catch error oftype ArgumentError {
+    cycle = true
+}
+assert_eq(cycle, true)
+print("args group checks passed")

@@ -1,0 +1,23 @@
+use "../src/init.fdn"
+
+action flags with (optional verbose oftype boolean = false) {
+    if verbose {
+        print("verbose")
+    }
+}
+
+action deploy with (optional environment oftype string = "dev") {
+    print("Deploy " + environment)
+}
+
+var operations = App(description = "Operations commands")
+
+operations
+    .add("deploy", deploy)
+    .option("environment", env = "FIDAN_EXAMPLE_ENV", choices = ["dev", "prod"])
+
+var app = App("mytool", "0.1.0")
+
+app.globals(flags)
+app.group("ops", operations, "Deployment commands", ["operations"])
+app.run()

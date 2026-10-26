@@ -1,0 +1,179 @@
+use "../src/init.fdn"
+
+@command
+action describe with (
+    certain count oftype integer,
+    optional name oftype string = "Dal",
+    optional verbose oftype boolean = false,
+    optional ratio oftype float = 1.5,
+) returns dynamic {
+    return (count, name, verbose, ratio)
+}
+
+assert_eq(run(describe, ["3"]), (3, "Dal", false, 1.5))
+assert_eq(
+        run(describe, ["--count", "-3", "--name=你好", "-vv", "--ratio", "2.5"]),
+        (-3, "你好", true, 2.5),
+    )
+assert_eq(run(describe, ["-c=-3", "-n", "", "--name=last", "-r1.25"]), (-3, "last", false, 1.25))
+assert_eq(run(describe, ["3", "-vnworld"]), (3, "world", true, 1.5))
+assert_eq(run(describe, ["3", "--verbose", "--no-verbose"]), (3, "Dal", false, 1.5))
+assert_eq(run(describe, ["3", "--name", "--literal"]), (3, "--literal", false, 1.5))
+
+@command
+action positional with (certain text oftype string, certain rest oftype list oftype string) returns dynamic {
+    return (text, rest)
+}
+
+assert_eq(run(positional, ["-", "-2.5", "--", "--child", "-x"]), ("-", ["-2.5", "--child", "-x"]))
+assert_eq(run(positional, ["--", "--literal"]), ("--literal", []))
+
+@command
+action flags with (optional verbose oftype boolean = true) returns boolean {
+    return verbose
+}
+
+assert_eq(run(flags, []), true)
+assert_eq(run(flags, ["--no-verbose"]), false)
+
+# Colliding initials retain their unambiguous long names, without a second schema.
+@command
+action collision with (optional name oftype string = "a", optional number oftype integer = 1) returns dynamic {
+    return (name, number)
+}
+
+assert_eq(run(collision, ["--name=b", "--number=2"]), ("b", 2))
+assert_eq(help(collision).contains(", -n"), false)
+
+var defaults = Shared(0)
+
+action next_default returns integer {
+    defaults.update(action with (value oftype dynamic) {
+        return value + 1
+    })
+    return 7
+}
+
+@command
+action computed with (
+    optional count oftype integer = next_default(),
+) returns integer {
+    return count
+}
+
+assert_eq(computed.parameters[0]["default_known"], false)
+help(computed)
+assert_eq(defaults.get(), 0)
+assert_eq(run(computed, []), 7)
+assert_eq(defaults.get(), 1)
+assert_eq(run(computed, ["--count=9"]), 9)
+assert_eq(defaults.get(), 1)
+
+# Closures expose only their real public parameters and keep captured state.
+action make_greet with (certain prefix oftype string) returns action {
+    return action with (optional name oftype string = "world") returns string {
+        return prefix + name
+    }
+}
+
+var greet = make_greet("hello ")
+
+assert_eq(len(greet.parameters), 1)
+assert_eq(run(greet, ["--name=Dal"]), "hello Dal")
+
+@precompile
+action expect_error with (certain callback oftype action, certain expected oftype string) {
+    var caught = false
+
+    attempt {
+        callback.invoke([])
+    } catch error oftype ArgumentError {
+        assert_eq(error.message.contains(expected), true)
+        caught = true
+    }
+
+    assert_eq(caught, true)
+}
+
+expect_error(action {
+    run(describe, [])
+}, "Missing required argument: count")
+expect_error(action {
+    run(describe, ["-c"])
+}, "Missing value for --count")
+expect_error(action {
+    run(describe, ["--count", "--"])
+}, "Missing value for --count")
+expect_error(action {
+    run(describe, ["--unknown"])
+}, "Unknown option: --unknown")
+expect_error(action {
+    run(describe, ["-z"])
+}, "Unknown option: -z")
+expect_error(action {
+    run(describe, ["3", "--verbose=yes"])
+}, "Flag takes no value")
+expect_error(action {
+    run(describe, ["--count=nope"])
+}, "Expected integer for count")
+expect_error(action {
+    run(describe, ["3", "--ratio=nope"])
+}, "Expected float for ratio")
+expect_error(action {
+    run(describe, ["3", "extra"])
+}, "Unexpected positional argument")
+expect_error(action {
+    run(collision, ["-nvalue"])
+}, "Unknown option: -n")
+
+var invalid = action with (certain value oftype dynamic) {
+    print(value)
+}
+
+expect_error(action {
+    command(invalid)
+}, "Unsupported command parameter type")
+
+var invalid_rest = action with (certain rest oftype list oftype string, certain name oftype string) {
+    print(name)
+}
+
+expect_error(action {
+    command(invalid_rest)
+}, "Rest parameter must be last")
+
+# User callback failures are not rewritten into parse errors.
+var callback_error = false
+
+attempt {
+    run(action {
+        panic("original callback error")
+    }, [])
+} catch error {
+    assert_eq(error, "original callback error")
+    callback_error = true
+}
+assert_eq(callback_error, true)
+assert_eq(help(describe, "demo", "0.1.0", "Demo").contains("--count, -c integer (required)"), true)
+assert_eq(help(describe).contains("[default: Dal]"), true)
+
+# Required arity and non-Nothing are separate Fidan parameter contracts.
+@command
+action plain with (value oftype integer) returns integer {
+    return value
+}
+
+assert_eq(run(plain, ["12"]), 12)
+expect_error(action {
+    run(plain, [])
+}, "Missing required argument: value")
+# Recognized version flags must never succeed with a blank version.
+expect_error(action {
+    run(describe, ["--version"])
+}, "Version metadata is required")
+expect_error(action {
+    run(describe, ["-V"], version = "   ")
+}, "Version metadata is required")
+assert_eq(run(describe, ["--version"], version = "0.1.0"), nothing)
+assert_eq(run(describe, ["--help"]), nothing)
+print("args parser checks passed")
