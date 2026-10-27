@@ -5,13 +5,12 @@ and defaults from the compiler, converts arguments and invokes the selected
 callback. No second option-type dictionary, global command registry or error key
 is required. Invalid arguments raise an `ArgumentError`.
 
-This is the local, unpublished 0.1.0 candidate for the coordinated **future
-compiler / protocol-8 LLVM helper** release. The published Fidan 1.0.16 binary
+This is the local, unpublished 0.1.0 candidate for the coordinated **Fidan 1.1.0 / protocol-8 LLVM helper 1.1.0** release. The published Fidan 1.0.16 binary
 does not implement this API; that is a release boundary, not a defect in the
 candidate. The source manifest's `=0.0.0-args-unreleased` sentinel deliberately
 prevents accidental installation with an older public compiler. Local staging
 probes actual compiler capabilities and writes an exact-version copy only. The
-proposed compiler version lives in the sibling compiler's
+committed compiler version lives in the sibling compiler's
 `config/release-candidate.json`; no package publication is claimed here.
 
 ## One command
@@ -253,7 +252,7 @@ separate; truthful descriptive references are allowed. See
 
 ### Compiler diagnostics versus application options
 
-With the upcoming Fidan compiler candidate, `fidan -vv run examples/single.fdn -- --help`
+With Fidan 1.1.0, `fidan -vv run examples/single.fdn -- --help`
 enables compiler DEBUG diagnostics on stderr and forwards `--help` to the args
 application. Put Fidan's `-v`/`-vv`/`-vvv` before the source path. Flags after
 `--` belong entirely to your CLI; args callbacks and application stdout are
