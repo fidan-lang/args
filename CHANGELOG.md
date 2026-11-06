@@ -2,6 +2,8 @@
 
 ## 0.1.0 — 2026-11-06
 
+- Add searchable CLI/argument-parsing keywords and command-line categories.
+
 - Advertise version in help/completion only with nonblank metadata; preserve inherited
   and overridden group versions and typed failures for unconfigured version requests.
 
