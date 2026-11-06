@@ -19,7 +19,7 @@ test("actual package staging preserves runtime/metadata and excludes absent deve
       assert.deepEqual(fs.readFileSync(path.join(destination, file)), fs.readFileSync(path.join(root, file)), file);
     assert(!fs.existsSync(path.join(destination, "docs")));
     assert(!fs.readFileSync(path.join(destination, "dal.toml"), "utf8").includes('"docs/**"'));
-    assert.match(fs.readFileSync(path.join(destination, "dal.toml"), "utf8"), /STAGING ONLY/);
+    assert.deepEqual(fs.readFileSync(path.join(destination, "dal.toml")), source);
     assert.deepEqual(fs.readFileSync(path.join(root, "dal.toml")), source);
     assert.throws(() => stageLocalPackage(destination, binary), /exist|EEXIST/i);
   } finally { fs.rmSync(scratch, { recursive: true }); }
