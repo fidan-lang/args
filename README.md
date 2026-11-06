@@ -5,13 +5,8 @@ and defaults from the compiler, converts arguments and invokes the selected
 callback. No second option-type dictionary, global command registry or error key
 is required. Invalid arguments raise an `ArgumentError`.
 
-This is the local, unpublished 0.1.0 candidate for the coordinated **Fidan 1.1.0 / protocol-8 LLVM helper 1.1.0** release. The published Fidan 1.0.16 binary
-does not implement this API; that is a release boundary, not a defect in the
-candidate. The source manifest's `=0.0.0-args-unreleased` sentinel deliberately
-prevents accidental installation with an older public compiler. Local staging
-probes actual compiler capabilities and writes an exact-version copy only. The
-committed compiler version lives in the sibling compiler's
-`config/release-candidate.json`; no package publication is claimed here.
+Version 0.1.0 requires **Fidan 1.1.0** and the matching protocol-8 LLVM
+helper 1.1.0 for LLVM builds. The manifest pins `fidan = "=1.1.0"`.
 
 ## One command
 
@@ -31,9 +26,8 @@ fidan run examples/single.fdn -- --name "Dal Person"
 fidan run examples/single.fdn -- --help
 ```
 
-The checked-in examples use relative imports so they work before publication;
-the documented grouped `use args.{run}` / `use args.{App}` forms apply to an
-installed package. A plain `use args` is a namespace import and requires qualified
+The checked-in examples use relative imports for local development.
+`use args.{run}` and `use args.{App}` work in projects with args installed. A plain `use args` is a namespace import and requires qualified
 names. `@command` is an
 optional eager signature check. It does not register the action: `run` performs
 the same validation without the decorator. Ordinary `callback(a, b)` calls remain
@@ -221,7 +215,7 @@ flag and declared-choice completion; it does not auto-install itself in profiles
 PowerShell deliberately declines nonliteral expression arguments instead of
 executing them. No shell profile is changed by the package or its tests.
 
-## Validation and release boundary
+## Validation
 
 ```sh
 node tests/check.mjs --llvm
@@ -231,17 +225,15 @@ fish tests/completion-adapters.fish
 pwsh -NoProfile -File tests/completion-adapters.ps1
 ```
 
-`FIDAN_BIN` selects the actual candidate. The LLVM option requires its matching
+`FIDAN_BIN` selects the Fidan compiler under test. The LLVM option requires its matching
 helper in isolated `FIDAN_HOME`; without `--llvm` the runner checks Cranelift.
 The runner checks every regression file and example, both argv forms, interpreter
 thresholds 0/1, native executions, formatting, canonical archive packaging and
 included adapter files. Shell adapter tests execute real shell syntax with
 controlled token sources; they are not claims of interactive GUI shell coverage.
 
-Release approval and publishing a supporting compiler/helper/package are external
-gates. The sentinel will be replaced with the real coordinated release constraint
-only when that release is approved. It must not be changed to claim compatibility
-with the installed old public binary merely to make local tests pass.
+Release tests use Fidan 1.1.0 and preserve the exact package manifest during
+staging. Older compiler versions are not supported.
 
 ## License
 
@@ -256,11 +248,12 @@ With Fidan 1.1.0, `fidan -vv run examples/single.fdn -- --help`
 enables compiler DEBUG diagnostics on stderr and forwards `--help` to the args
 application. Put Fidan's `-v`/`-vv`/`-vvv` before the source path. Flags after
 `--` belong entirely to your CLI; args callbacks and application stdout are
-unchanged. The published compiler 1.0.16 does not provide these diagnostic flags.
+unchanged. These diagnostic flags are supported by Fidan 1.1.0.
 
-### Planned stable availability
+### Installation
 
-The coordinated target is Fidan **1.1.0 stable** and LLVM helper **1.1.0**, protocol 8;
-args remains **0.1.0**. No intermediate public RC is required. Publish args only after
-that compiler/helper release and the production DAL launch are approved and operational.
-The checked-in `=0.0.0-args-unreleased` sentinel stays in place until both gates are met.
+With Fidan 1.1.0 installed, add args to your project:
+
+```sh
+fidan dal add args
+```

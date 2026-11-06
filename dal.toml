@@ -1,9 +1,7 @@
 [package]
 name = "args"
 version = "0.1.0"
-# RELEASE-ONLY BLOCKER: no published compiler implements the required callback API.
-# Replace only after Fidan/helper 1.1.0 stable AND production DAL are approved and operational.
-fidan = "=0.0.0-args-unreleased"
+fidan = "=1.1.0"
 description = "Signature-driven command callbacks for Fidan command-line programs"
 license = "Apache-2.0"
 readme = "README.md"
